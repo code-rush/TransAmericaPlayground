@@ -4,33 +4,69 @@ using System.Collections.Generic;
 
 public class GameController : MonoBehaviour {
 
-	public GUIText playersTurnText, movesText, gameOverText;
-	string player;
+	public GUIText playersTurnText, movesText, gameOverText;            //text shown to indicate players turn, how many moves left and the winner of the game
+	string player;                                                      //used to show who's turn it is
 	int count;
 
+    /*
+     * creates the board map
+     * 
+     * line - a horizontal line between the points
+     * vrline - vertical line slanted on the right side -> /
+     * drline - diagonal line slanted to the left side -> \
+     * hbridge - horizontal bridge
+     * vbridge - vertical bridge
+     * dbridge - diagonal bridge
+     * 
+    */
 	public int xSize, zSize;
-	public GameObject point, line, sdline, vrline, drline, hbridge, vbridge, dbridge, p1vp, p2vp, p3vp;
+    public GameObject point, line, sdline, vrline, drline, hbridge, vbridge, dbridge;
 	public GameObject redCities, greenCities, yellowCities, blueCities, orangeCities;
 
-	public int humanPlayers;
-	public int botPlayers;
+
+    /*
+     * players victory points (victory points are basically the cities to connect)
+    */
+    public GameObject p1vp, p2vp, p3vp;
+
+
+	public int humanPlayers;        //indicates how many human players are playing the game
+	public int botPlayers;          //indicates how many bot players are playing the game
 
 	private Vector3[] vertices;
 	private Vector3[] horizontalLines, verticalLines, diagonalLines;
 //	private Vector3[] players;
 
+    /*
+     * Stores the value of the users hubs which is given to them right now.
+     * In order to have the user choose the color of their hub, we need to program that when 
+     * we work on the UI.
+     * 
+     * TODO: Assign the color of choice to the user's hub
+    */
 	public GameObject userHubs1, userHubs2, userHubs3, userHubs4, userHubs5, userHubs6;
-	private int maxHubs;
-	private int hubCount;
+	
+    private int maxHubs;            //holds the total number hubs to be placed (i.e. human + bot players)
+	private int hubCount;           //indicates the number of hubs placed
 
 	ArrayList definedPoints = new ArrayList ();
 
+    /*
+     * There are 5 zones on the board, each zone indicates a number of cities.
+     * zone1 - green cities
+     * zone2 - blue cities
+     * zone3 - red cities
+     * zone4 - orange cities
+     * zone5 - yellow cities
+     * 
+     * Each zone has 7 cities where 2 of the cities from each zone are exclusive
+     * if there are <= 5 players playing the game, but included when there are 6 players playing.
+    */
 	ArrayList zone1 = new ArrayList ();
 	ArrayList zone2 = new ArrayList ();
 	ArrayList zone3 = new ArrayList ();
 	ArrayList zone4 = new ArrayList ();
 	ArrayList zone5 = new ArrayList ();
-
 	ArrayList zone1_full = new ArrayList ();
 	ArrayList zone2_full = new ArrayList ();
 	ArrayList zone3_full = new ArrayList ();
@@ -38,11 +74,6 @@ public class GameController : MonoBehaviour {
 	ArrayList zone5_full = new ArrayList ();
 
 	ArrayList pointCollections = new ArrayList ();
-
-//	ArrayList quadrant1 = new ArrayList ();
-//	ArrayList quadrant2 = new ArrayList ();
-//	ArrayList quadrant3 = new ArrayList ();
-//	ArrayList quadrant4 = new ArrayList ();
 
 	ArrayList playersHubCollections;
 
@@ -67,8 +98,10 @@ public class GameController : MonoBehaviour {
 
 	int allow_bot_to_lay_tracks;
 
-	private bool restart;
+	private bool restart;               //is used to restart the game
 
+
+    // HOLDS THE POSITION OF THE CITIES ON THE MAP
 	Dictionary<Vector3, string> city_zones = new Dictionary<Vector3, string>() {
 		//green
 		{new Vector3(6f, 1f, 2f), "zone1_full"},
@@ -112,6 +145,7 @@ public class GameController : MonoBehaviour {
 		{new Vector3(13f, 1f, 6f), "zone5"},
 	};
 
+    // HOLDS THE POSITION OF THE HORIZONTAL BRIDGES ON THE MAP
 	Dictionary<Vector3, string> horizontal_bridges = new Dictionary<Vector3, string> () {
 		{ new Vector3 (0f, 1f, 12f), "hbridge" },
 		{ new Vector3 (0f, 1f, 11f), "hbridge" },
@@ -165,6 +199,7 @@ public class GameController : MonoBehaviour {
 		{ new Vector3 (16f, 1f, 8f), "hbridge" }
 	};
 
+    // HOLDS THE POSITION OF THE VERTICAL BRIDGES ON THE MAP
 	Dictionary<Vector3, string> vertical_bridges = new Dictionary<Vector3, string> () {
 		{ new Vector3 (2f, 1f, 11f), "vbridge" },
 		{ new Vector3 (4f, 1f, 11f), "vbridge" },
@@ -197,6 +232,8 @@ public class GameController : MonoBehaviour {
 		{ new Vector3 (10f, 1f, 10f), "vbridge" },
 		{ new Vector3 (11f, 1f, 9f), "vbridge" }
 	};
+
+    // INDICATES THE POSITION OF THE DIAGONAL BRIDGES ON THE MAP
 	Dictionary<Vector3, string> diagonal_bridges = new Dictionary<Vector3, string> (){
 		{new Vector3(1f, 1f, 11f), "dbridge"},
 		{new Vector3(5f, 1f, 11f), "dbridge"},
@@ -229,6 +266,8 @@ public class GameController : MonoBehaviour {
 		{new Vector3(16f, 1f, 0f), "dbridge"},
 	};
 
+
+    // list of positions of the vertices to remove from the board to create the perfect map
 	List<Vector3> delete_vertices = new List<Vector3>{
 		new Vector3(0f, 1f, 0f),
 		new Vector3(1f, 1f, 0f),
@@ -304,6 +343,7 @@ public class GameController : MonoBehaviour {
 		new Vector3(19f, 1f, 12f)
 	};
 
+    // list of positions of the horizontal lines to remove from the board to create the perfect map
 	List<Vector3> delete_horizontalLines = new List<Vector3> {
 		new Vector3(0f, 1f, 0f),
 		new Vector3(1f, 1f, 0f),
@@ -381,6 +421,7 @@ public class GameController : MonoBehaviour {
 		new Vector3(18f, 1f, 12f)
 	};
 
+    // list of positions of the vertical lines to remove from the board to create the perfect map
 	List<Vector3> delete_verticalLines = new List<Vector3> {
 		new Vector3(0f, 1f, 0f),
 		new Vector3(1f, 1f, 0f),
@@ -456,6 +497,7 @@ public class GameController : MonoBehaviour {
 		new Vector3(19f, 1f, 11f)
 	};
 
+    // list of positions of the diagonal lines to remove from the board to create the perfect map
 	List<Vector3> delete_diagonalLines = new List<Vector3> {
 		new Vector3(1f, 1f, 0f),
 		new Vector3(2f, 1f, 0f),
@@ -527,13 +569,11 @@ public class GameController : MonoBehaviour {
 		new Vector3(19f, 1f, 11f)
 	};
 
+
 	void Awake () {
-		maxHubs = humanPlayers + botPlayers;
-//		GenerateSqauricalGrid ();
-//		GenerateRhombicalGrid ();
-		// Generating grid
-		GenerateRhombicalGrid2 ();
-		hubCount = 0;
+		maxHubs = humanPlayers + botPlayers;        //sets the value of the var maxHubs
+		GenerateRhombicalGrid2 ();                  //generates a map on the board
+		hubCount = 0;                               
 		turn = 0;
 
 		// initializing neccessary arraylists for all players
@@ -543,10 +583,11 @@ public class GameController : MonoBehaviour {
 		}
 
 		if (maxHubs > 1) {
-			playersHubCollections = new ArrayList ();
-			allow_bot_to_lay_tracks = 2;
+			playersHubCollections = new ArrayList ();   //array to store human player's hubs locations to exclude from bot's hub placement options
+			allow_bot_to_lay_tracks = 2;                //counter to track bot's tracks
 		}
 	}
+
 
 	void Start () {
 		restart = false;
@@ -557,7 +598,7 @@ public class GameController : MonoBehaviour {
 
 		layedTracks = 0;
 
-		// Assigning victory points to each player randomly
+        // Assigning victory points to each player randomly (one city from each zone)
 		for (int i = 0; i < maxHubs; i++) {
 			int one = Random.Range (0, zone1.Count - 1);
 			int two = Random.Range (0, zone2.Count - 1);
@@ -578,18 +619,12 @@ public class GameController : MonoBehaviour {
 			zone5.RemoveAt (five);
 		}
 
+        //show cities of the first human player with a square above the city
 		foreach (Vector3 x in players[0]) {
 			GameObject p1 = Instantiate (p1vp, x + new Vector3(0f, -0.3f, 0.3f), Quaternion.identity) as GameObject;
-		}
+        }
 
-//		foreach (Vector3 y in players[1]) {
-//			GameObject p2 = Instantiate (p2vp, y + new Vector3(0f, -0.3f, 0.3f), Quaternion.identity) as GameObject;
-//		}
-
-//		foreach (Vector3 x in players[2]) {
-//			GameObject p3 = Instantiate (p3vp, x + new Vector3(0f, -0.3f, 0.3f), Quaternion.identity) as GameObject;
-//		}
-
+        //printing all players cities to be connected
 		for (int i = 0; i < maxHubs; i++) {
 			Debug.Log ("players size: " + players[i].Count);
 			foreach (Vector3 x in players[i]) {
@@ -597,7 +632,7 @@ public class GameController : MonoBehaviour {
 			}
 		}
 
-		//Debugging nodes at the end of bridges whose value is 2
+		//printing points at the end of bridges whose value is 2
 		Debug.Log ("The below are brigde end points");
 		foreach (Vector3 x in bridgeNodes) {
 			Debug.Log (x);
@@ -673,10 +708,12 @@ public class GameController : MonoBehaviour {
 
 	void Update () {
 
+        //Restarts the game if "R" key is pressed
 		if (Input.GetKeyDown (KeyCode.R)) {
 			Application.LoadLevel (Application.loadedLevel);
 		}
 
+        //changes the players turn if "C" key is pressed
 		if (Input.GetKeyDown (KeyCode.C)) {
 			changeTurn ();
 		}
@@ -1747,15 +1784,17 @@ public class GameController : MonoBehaviour {
 		return false;
 	}
 
+    // shows how many moves left for the player
 	void UpdateCount () {
 		if (layedTracks == 0) {
 			count = 2;
 		} else if (layedTracks == 1) {
 			count = 1;
 		}
-		movesText.text = "Move: " + count;
+		movesText.text = "Moves left: " + count;
 	}
 
+    // updates turn
 	void UpdateTurn () {
 		switch (turn) {
 		case 0:
@@ -1825,6 +1864,8 @@ public class GameController : MonoBehaviour {
 
 	}
 
+
+    // Generates the board map
 	void GenerateRhombicalGrid2 () {
 		horizontalLines = new Vector3[xSize * (zSize + 1)];
 		Quaternion horizontalLine = Quaternion.Euler (90f, 90f, 0f);
@@ -1893,18 +1934,6 @@ public class GameController : MonoBehaviour {
 					}
 					definedPoints.Add (vertex.transform.position);
 				}
-//				if (x < (xSize / 2) && z < (zSize / 2)) {
-//					quadrant1.Add (vertex.transform.position);
-//				}
-//				if (x < (xSize / 2) && z > (zSize / 2)) {
-//					quadrant2.Add (vertex.transform.position);
-//				}
-//				if (x > (xSize / 2) && z > (zSize / 2)) {
-//					quadrant3.Add (vertex.transform.position);
-//				}
-//				if (x > (xSize / 2) && z < (zSize / 2)) {
-//					quadrant4.Add (vertex.transform.position);
-//				}
 			}
 		}
 
@@ -1934,22 +1963,6 @@ public class GameController : MonoBehaviour {
 					}
 				}
 			}
-//				if ((z == 0 && x == 1) || (z == 2 && x == 5) || (z == 4 && x == 3) || (z == 4 && x == 2) || (z==3 && x==7) || (z==4 && x==7) || (z==5 && x==7) || (z==6 && x==7)) {
-//					Vector3 node1 = new Vector3 (x, 1f, z) + (z * vertexOffset);
-//					Vector3 node2 = new Vector3 (x + 1f, 1f, z) + (z * vertexOffset);
-//					if (bridgeNodes.Contains (node1) == false) {
-//						bridgeNodes.Add (node1);
-//					}
-//					if (bridgeNodes.Contains (node2) == false) {
-//						bridgeNodes.Add (node2);
-//					}
-//					GameObject horizontal_bridge = Instantiate (hbridge, horizontalLines [h] + new Vector3 (0.5f, 0f, 0f) + (z * vertexOffset), horizontalLine) as GameObject;
-//					horizontal_bridge.gameObject.tag = "hBridge";
-//				} else {
-//					GameObject horizontal_line = Instantiate (line, horizontalLines [h] + new Vector3 (0.5f, 0f, 0f) + (z * vertexOffset), horizontalLine) as GameObject;
-//					horizontal_line.gameObject.tag = "hLine";
-//				}
-//			}
 		}
 
 		for (int v = 0, z = 0; z < zSize; z++) {
@@ -2009,82 +2022,9 @@ public class GameController : MonoBehaviour {
 				}
 			}
 		}
-
-//		foreach (Vector3 x in definedPoints) {
-//			Debug.Log ("points: " + x.ToString ("F4"));
-//		}
 	}
 
-//	//Generates gameController grid
-//	void GenerateRhombicalGrid () {
-//		horizontalLines = new Vector3[xSize * (zSize + 1)];
-//		Quaternion horizontalLine = Quaternion.Euler (90f, 90f, 0f);
-//
-//		verticalLines = new Vector3[(xSize + 1) * zSize];
-//		Quaternion verticalLine = Quaternion.Euler (90f, 30f, 0f);
-//
-//		diagonalLines = new Vector3[xSize * zSize];
-//		Quaternion diagonalLine = Quaternion.Euler (90f, -30f, 0f);
-//
-//		Vector3 vertexOffset = new Vector3 (0.5f, 0f, -0.134f);
-//		vertices = new Vector3[(xSize + 1) * (zSize + 1)];
-//
-//		Vector3 verticalLineOffset = new Vector3 (0.25f, 0f, 0.433f);
-//		Vector3 diagonalLineOffset = new Vector3 (-0.25f, 0f, 0.433f);
-//
-//
-//		for (int i = 0, z = 0; z <= zSize; z++) {
-//			for (int x = 0; x <= xSize; x++, i++) {
-//				vertices [i] = new Vector3 (x, 1f, z);
-//				GameObject vertex = Instantiate (point, vertices [i] + (z * vertexOffset), Quaternion.identity) as GameObject;
-//				definedPoints.Add (vertex.transform.position);
-//				if (x < (xSize/2) && z < (zSize/2)) {
-//					quadrant1.Add (vertex.transform.position);
-//				}
-//				if (x < (xSize / 2) && z > (zSize / 2)) {
-//					quadrant2.Add (vertex.transform.position);
-//				}
-//				if (x > (xSize / 2) && z > (zSize / 2)) {
-//					quadrant3.Add (vertex.transform.position);
-//				}
-//				if (x > (xSize / 2) && z < (zSize / 2)) {
-//					quadrant4.Add (vertex.transform.position);
-//				}
-//			}
-//		}
-//
-//
-//		for (int h = 0, z = 0; z <= zSize; z++) {
-//			for (int x = 0; x < xSize; x++, h++) {
-//				horizontalLines [h] = new Vector3 (x, 1f, z);
-//				GameObject horizontal_line = Instantiate (line, horizontalLines [h] + new Vector3(0.5f,0f,0f) + (z * vertexOffset), horizontalLine) as GameObject;
-//				horizontal_line.gameObject.tag = "hLine";
-//			}
-//		}
-//
-//		for (int v = 0, z = 0; z < zSize; z++) {
-//			for (int x = 0; x <= xSize; x++, v++) {
-//				verticalLines [v] = verticalLineOffset + (z * vertexOffset) + new Vector3 (x, 1f, z);
-//				GameObject vertical_line = Instantiate (line, verticalLines [v], verticalLine) as GameObject;
-//				vertical_line.gameObject.tag = "vLine";
-//			}
-//		}
-//
-//		for (int d = 0, z = 0; z < zSize; z++) {
-//			for (int x = 1; x <= xSize; x++, d++) {
-//				diagonalLines [d] = diagonalLineOffset + (z * vertexOffset) + new Vector3 (x, 1f, z);
-//				GameObject diagonal_line = Instantiate (line, diagonalLines [d], diagonalLine) as GameObject;
-//				diagonal_line.gameObject.tag = "dLine";
-//			}
-//		}
-//
-//		foreach (Vector3 x in definedPoints) {
-//			Debug.Log ("points: " + x.ToString ("F4"));
-//		}
-//	}
-//
-
-	//disables clicking on line
+	//disables clicking on line until all the players have placed their hub
 	void disableTrackInstantiation () {
 		if (gameObject.tag == "hLine" || gameObject.tag == "vLine" || gameObject.tag == "dLine" || gameObject.tag == "hBridge" || gameObject.tag == "dBridge" || gameObject.tag == "vBridge") {
 			gameObject.GetComponent<CapsuleCollider> ().enabled = false;
@@ -2092,7 +2032,7 @@ public class GameController : MonoBehaviour {
 	}
 
 
-	//disables clicking on vertex
+	//disables clicking on vertex as soon as all the players have place their hub
 	void disableHubInstantiation () {
 		if (gameObject.tag == "Point") {
 			gameObject.GetComponent<SphereCollider> ().enabled = false;
@@ -2231,55 +2171,56 @@ public class GameController : MonoBehaviour {
 		return path_to_dest;
 	}
 
-	public Dictionary<Vector3, List<Vector3>> shortest_path (Graph G, Vector3 v, Vector3 dest){
-		Dictionary<Vector3, int> distance_so_far = new Dictionary<Vector3, int> ();
-		Dictionary<Vector3, int> final_distance = new Dictionary<Vector3, int> ();
-		Dictionary<Vector3, Vector3> path_to = new Dictionary<Vector3, Vector3> ();
-		Dictionary<Vector3, List<Vector3>> path_to_dest = new Dictionary<Vector3, List<Vector3>> ();
-		distance_so_far [v] = 0;
-		path_to [v] = v;
-		while (final_distance.Count < G.nodes.Count) {
-			Vector3 w = shortest_distance_node (distance_so_far);
-			final_distance [w] = distance_so_far [w];
-			distance_so_far.Remove (w);
-			foreach (Vector3 x in G.get_neighbour_nodes(w)) {
-				if (final_distance.ContainsKey (x) == false) {
-					if (distance_so_far.ContainsKey (x) == false) {
-						distance_so_far [x] = final_distance [w] + G.get_distance_between_nodes (x, w);
-						path_to [x] = w;
-					} else if (final_distance [w] + G.get_distance_between_nodes (x, w) < distance_so_far [x]) {
-						distance_so_far [x] = final_distance [w] + G.get_distance_between_nodes (x, w);
-						path_to [x] = w;
-					}
-				}
-				if (final_distance.ContainsKey (dest)) {
-					break;
-				}
-			}
-		}
+	//public Dictionary<Vector3, List<Vector3>> shortest_path (Graph G, Vector3 v, Vector3 dest){
+	//	Dictionary<Vector3, int> distance_so_far = new Dictionary<Vector3, int> ();
+	//	Dictionary<Vector3, int> final_distance = new Dictionary<Vector3, int> ();
+	//	Dictionary<Vector3, Vector3> path_to = new Dictionary<Vector3, Vector3> ();
+	//	Dictionary<Vector3, List<Vector3>> path_to_dest = new Dictionary<Vector3, List<Vector3>> ();
+	//	distance_so_far [v] = 0;
+	//	path_to [v] = v;
+	//	while (final_distance.Count < G.nodes.Count) {
+	//		Vector3 w = shortest_distance_node (distance_so_far);
+	//		final_distance [w] = distance_so_far [w];
+	//		distance_so_far.Remove (w);
+	//		foreach (Vector3 x in G.get_neighbour_nodes(w)) {
+	//			if (final_distance.ContainsKey (x) == false) {
+	//				if (distance_so_far.ContainsKey (x) == false) {
+	//					distance_so_far [x] = final_distance [w] + G.get_distance_between_nodes (x, w);
+	//					path_to [x] = w;
+	//				} else if (final_distance [w] + G.get_distance_between_nodes (x, w) < distance_so_far [x]) {
+	//					distance_so_far [x] = final_distance [w] + G.get_distance_between_nodes (x, w);
+	//					path_to [x] = w;
+	//				}
+	//			}
+	//			if (final_distance.ContainsKey (dest)) {
+	//				break;
+	//			}
+	//		}
+	//	}
 			
-		if (path_to.ContainsKey (dest)) {
-			if (path_to [dest] != v) {
-				bool source_point_found = false;
-				Vector3 pointer_point = dest;
-				path_to_dest [dest] = new List<Vector3> ();
-				path_to_dest [dest].Add (dest);
-				while (source_point_found != true) {
-					path_to_dest [dest].Add (path_to [pointer_point]);
-					pointer_point = path_to [pointer_point];
-					if (pointer_point == v) {
-						source_point_found = true;
-					}
-				}
-			}
-		}
+	//	if (path_to.ContainsKey (dest)) {
+	//		if (path_to [dest] != v) {
+	//			bool source_point_found = false;
+	//			Vector3 pointer_point = dest;
+	//			path_to_dest [dest] = new List<Vector3> ();
+	//			path_to_dest [dest].Add (dest);
+	//			while (source_point_found != true) {
+	//				path_to_dest [dest].Add (path_to [pointer_point]);
+	//				pointer_point = path_to [pointer_point];
+	//				if (pointer_point == v) {
+	//					source_point_found = true;
+	//				}
+	//			}
+	//		}
+	//	}
 
 
-		Debug.Log ("path_to: " + path_to.Count);
+	//	Debug.Log ("path_to: " + path_to.Count);
 
-		return path_to_dest;
-	}
+	//	return path_to_dest;
+	//}
 
+    // gets the point from which the bot has to start laying tracks again
 	public Vector3 get_current_point (){
 		Dictionary<Vector3, Vector3> point_source = new Dictionary<Vector3, Vector3> ();
 		Dictionary<Vector3, int> shortest_distances_map = new Dictionary<Vector3, int> ();
