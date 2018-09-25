@@ -25,9 +25,9 @@ public class Graph {
 		foreach (Vector3 x in _array) {
 			this.bridgeNodeList.Add (x);
 		}
-		foreach (Vector3 x in bridgeNodeList) {
-			Debug.Log ("graph bridge node list has nodes " + x);
-		}
+		//foreach (Vector3 x in bridgeNodeList) {
+			//Debug.Log ("graph bridge node list has nodes " + x);
+		//}
 	}
 
 	public void insert_node(Vector3 value) {

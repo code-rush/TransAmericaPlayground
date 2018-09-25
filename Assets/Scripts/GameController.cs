@@ -1,6 +1,7 @@
 ﻿using UnityEngine;
 using System.Collections;
 using System.Collections.Generic;
+using UnityEngine.SceneManagement;
 
 public class GameController : MonoBehaviour {
 
@@ -30,8 +31,8 @@ public class GameController : MonoBehaviour {
     public GameObject p1vp, p2vp, p3vp;
 
 
-    public int humanPlayers;        //indicates how many human players are playing the game
-    public int botPlayers;          //indicates how many bot players are playing the game
+    int humanPlayers;        //indicates how many human players are playing the game
+    int botPlayers;          //indicates how many bot players are playing the game
 
     private Vector3[] vertices;
     private Vector3[] horizontalLines, verticalLines, diagonalLines;
@@ -73,7 +74,11 @@ public class GameController : MonoBehaviour {
     ArrayList zone4_full = new ArrayList();
     ArrayList zone5_full = new ArrayList();
 
+    ArrayList allCities = new ArrayList();
+
     ArrayList pointCollections = new ArrayList();
+
+    bool placingHubs;
 
     //	ArrayList quadrant1 = new ArrayList ();
     //	ArrayList quadrant2 = new ArrayList ();
@@ -85,13 +90,27 @@ public class GameController : MonoBehaviour {
     ArrayList[] players = new ArrayList[6];
     ArrayList[] playersCollections = new ArrayList[6];
 
-    ArrayList botsvp = new ArrayList();
+    //ArrayList botsvp = new ArrayList();
+    ArrayList[] botsvps = new ArrayList[6];
+
+    ArrayList tracks_to_place = new ArrayList(); //bots tracks to place
+
+    Dictionary<int, string> botsDifficultyLevels = new Dictionary<int, string>();
+
+    //private Vector3 playingBotsStartingPoint;
 
     public ArrayList bridgeNodes = new ArrayList();
 
     Graph graph;
 
     public GameObject TrackBlocks;
+    public Material originalTrackBlockMaterial;
+
+    private ArrayList botsLastTurnTrackBlocks;
+
+    private ArrayList recentlyConnectedPlayers;
+
+    GameObject lastTrackPlaced;
 
     Ray ray;
     RaycastHit hit;
@@ -100,8 +119,6 @@ public class GameController : MonoBehaviour {
 
     int turn;
     int layedTracks;
-
-    int allow_bot_to_lay_tracks;
 
     private bool restart;               //is used to restart the game
 
@@ -576,6 +593,22 @@ public class GameController : MonoBehaviour {
 
 
     void Awake() {
+        int totalPlayers = MainMenu.Playertype.Count;
+        foreach(string type in MainMenu.Playertype)
+        {
+            if (type == "human")
+            {
+                humanPlayers += 1;
+            }
+        }
+
+        botPlayers = totalPlayers - humanPlayers;
+        botsDifficultyLevels = MainMenu.BotConfig;
+
+        allCities = new ArrayList();
+
+        //botsDifficultyLevels[1] = "medium";
+        //botsDifficultyLevels[2] = "easy";
         maxHubs = humanPlayers + botPlayers;        //sets the value of the var maxHubs
         GenerateRhombicalGrid2();                  //generates a map on the board
         hubCount = 0;
@@ -588,10 +621,11 @@ public class GameController : MonoBehaviour {
             playersCollections[i] = new ArrayList();
         }
 
-        if (maxHubs > 1)
+        if (botPlayers > 0)
         {
-            playersHubCollections = new ArrayList();   //array to store human player's hubs locations to exclude from bot's hub placement options
-            allow_bot_to_lay_tracks = 2;                //counter to track bot's tracks
+            botsLastTurnTrackBlocks = new ArrayList();
+            playersHubCollections = new ArrayList();    //array to store human player's hubs locations to exclude from bot's hub placement options
+            //playingBotsStartingPoint = new Vector3();   //if any bots are playing, instantiate this var to store playing bots starting point
         }
     }
 
@@ -599,6 +633,7 @@ public class GameController : MonoBehaviour {
     void Start() {
         restart = false;
         gotpaths = false;
+        placingHubs = true;
         gameOverText.text = "";
         UpdateCount();
         UpdateTurn();
@@ -630,30 +665,36 @@ public class GameController : MonoBehaviour {
         //show cities of the first human player with a square above the city
         foreach (Vector3 x in players[0])
         {
+            p1vp.GetComponent<Renderer>().sharedMaterial = userHubs1.GetComponent<Renderer>().sharedMaterial;
             GameObject p1 = Instantiate(p1vp, x + new Vector3(0f, -0.3f, 0.3f), Quaternion.identity) as GameObject;
         }
 
+        //foreach (Vector3 x in players[1])
+        //{
+        //    GameObject p2 = Instantiate(p2vp, x + new Vector3(0f, -0.3f, 0.3f), Quaternion.identity) as GameObject;
+        //}
+
         //printing all players cities to be connected
-        for (int i = 0; i < maxHubs; i++)
-        {
-            Debug.Log("players size: " + players[i].Count);
-            foreach (Vector3 x in players[i])
-            {
-                Debug.Log("players points: " + x.ToString("F4"));
-            }
-        }
+        //for (int i = 0; i < maxHubs; i++)
+        //{
+        //    Debug.Log("players size: " + players[i].Count);
+        //    foreach (Vector3 x in players[i])
+        //    {
+        //        Debug.Log("players points: " + x.ToString("F4"));
+        //    }
+        //}
 
-        //printing points at the end of bridges whose value is 2
-        Debug.Log("The below are brigde end points");
-        foreach (Vector3 x in bridgeNodes)
-        {
-            Debug.Log(x);
-        }
+        ////printing points at the end of bridges whose value is 2
+        //Debug.Log("The below are brigde end points");
+        //foreach (Vector3 x in bridgeNodes)
+        //{
+        //    Debug.Log(x);
+        //}
 
-        foreach (Vector3 x in bridgeNodeList())
-        {
-            Debug.Log("Bridge Node List" + x);
-        }
+        //foreach (Vector3 x in bridgeNodeList())
+        //{
+        //    Debug.Log("Bridge Node List" + x);
+        //}
 
         //creating graph by adding edges and nodes to the graph
         graph = new Graph();
@@ -692,53 +733,100 @@ public class GameController : MonoBehaviour {
             }
         }
 
-        foreach (Vector3 point in players[1])
+        // copy all bots victory points from players array to botsvp array
+
+        for (int i = 0; i < botPlayers; i++)
         {
-            botsvp.Add(point);
+            botsvps[i] = new ArrayList();
+            foreach (Vector3 point in players[humanPlayers + i]) {
+                botsvps[i].Add(point);
+            }
         }
+    }
 
+    bool isPlayerBot(int turn)
+    {
+        if (MainMenu.Playertype[turn] == "bot")
+        {
+            return true;
+        }
+        //if (turn == 1 || turn == 2)
+        //{
+        //    return true;
+        //}
 
-        //		Debug.Log (bridgeNodes.ToString());
+        return false;
+    }
 
-        //		ArrayList edge_list = new ArrayList ();
-        //		edge_list = graph.get_edge_list ();
-        //		print ("Edge_list " + graph.get_edge_list());
-        //		foreach (ArrayList x in edge_list) {
-        //			Debug.Log ("Edge_list " + x);
-        //		}
-        //
-        //		foreach (ArrayList x in graph.get_edge_list()) {
-        //			foreach (string y in x) {
-        //				Debug.Log ("List " + y);
-        //			}
-        //		}
+    public void restartGame()
+    {
+        setTracksColorToDefault();
+        SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
+    }
 
-        //		Vector3 hub = new Vector3 (0f, 1f, 0f);
-        //
-        //		Dictionary<Vector3, int> distance_to_points = new Dictionary<Vector3, int> ();
-        //		distance_to_points = shortest_distances (graph, hub);
-        //
-        //		Debug.Log ("Length of diction dtp " + distance_to_points.Count);
-        //
-        //		foreach (Vector3 x in distance_to_points.Keys) {
-        //			Debug.Log ("distance to the node from source in dictionary: " + x + distance_to_points [x]); 
-        //		}
+    public void goToHomeScreen()
+    {
+        SceneManager.LoadScene(0);
+        //GameObject obj = GameObject.FindGameObjectWithTag("music");
+        //Destroy(obj);
+    }
 
+    // allows a human player to change turn only after placing 1 track
+    public void forceChangeTurn()
+    {
+        if (isPlayerBot(turn) == false)
+        {
+            if (layedTracks > 0)
+            {
+                layedTracks = 0;
+                UpdateCount();
+                if (turn + 1 < maxHubs)
+                {
+                    turn += 1;
+                    UpdateTurn();
+                }
+                else
+                {
+                    turn = 0;
+                    UpdateTurn();
+                }
+            }
+        }
+    }
+
+    // allows human player to undo 1 track placement
+    public void undo()
+    {
+        if (isPlayerBot(turn) == false)
+        {
+            if (layedTracks == 1)
+            {
+                Destroy(lastTrackPlaced);
+                playersCollections[turn].RemoveAt(playersCollections[turn].Count - 1);
+                layedTracks = 0;
+                UpdateCount();
+            }
+        }
     }
 
 
-    void Update() {
-
+    void Update() 
+    {
         //Restarts the game if "R" key is pressed
         if (Input.GetKeyDown(KeyCode.R))
         {
-            Application.LoadLevel(Application.loadedLevel);
+            restartGame();
         }
 
         //changes the players turn if "C" key is pressed
         if (Input.GetKeyDown(KeyCode.C))
         {
-            changeTurn();
+            forceChangeTurn();
+        }
+
+        if (Input.GetKeyDown(KeyCode.U))
+        {
+            undo();
         }
 
         ray = Camera.main.ScreenPointToRay(Input.mousePosition);
@@ -746,46 +834,27 @@ public class GameController : MonoBehaviour {
         switch (turn)
         {
             case 0:
-                if (checkAllPlayersHaveHub() == false)
+                if (placingHubs == true)
                 {
                     disableTrackInstantiation();
 
-                    //				Dictionary<Vector3, int> distances_to_victory_points = new Dictionary<Vector3, int> ();
-                    //				foreach (Vector3 x in definedPoints) {
-                    //					Dictionary<Vector3, int> d_to_vps = shortest_distances (graph, x);
-                    //					int total_distance = new int ();
-                    //					foreach (Vector3 y in players[2]) {
-                    //						total_distance += d_to_vps [y];
-                    //					}
-                    //					distances_to_victory_points [x] = total_distance;
-                    //				}
-                    //
-                    //				Vector3 hub_point = shortest_distance_node (distances_to_victory_points);
-                    //
-                    //				foreach (Vector3 x in playersHubCollections) {
-                    //					if (x == hub_point) {
-                    //						distances_to_victory_points.Remove (hub_point);
-                    //						hub_point = shortest_distance_node (distances_to_victory_points);
-                    //					}
-                    //				}
-                    //
-                    //				Debug.Log ("The best point for bot to place the hub is: " + hub_point);
-                    //
-                    //				foreach (Vector3 x in distances_to_victory_points.Keys) {
-                    //					Debug.Log ("Total distance to all victory points from " + x + " is " + distances_to_victory_points [x]);
-                    //				}
-
-                    if (placeHub(turn))
+                    if (isPlayerBot(turn))
                     {
-                        changeTurn();
+                        botwillplaceahub();
+                    }
+                    else
+                    {
+                        if (placeHub(turn))
+                        {
+                            changeTurn();
+                        }
                     }
                 }
                 else
                 {
-
                     try
                     {
-                        addPlayersCollectionsIfConnected(1);
+                        addPlayersCollectionsIfConnected(turn);
                     }
                     catch
                     {
@@ -796,853 +865,848 @@ public class GameController : MonoBehaviour {
                     {
                         disableTrackInstantiation();
                         gameOverText.text = "Player " + winner() + " wins!";
-                        foreach (Vector3 y in players[1])
-                        {
-                            GameObject p2 = Instantiate(p2vp, y + new Vector3(0f, -0.3f, 0.3f), Quaternion.identity) as GameObject;
-                        }
+                        highlightAllPlayersCities();
                     }
                     else
                     {
-
-                        placetrack(turn);
-
-                        try
+                        if (isPlayerBot(turn))
                         {
-                            addPlayersCollectionsIfConnected(1);
+                            if (botsDifficultyLevels[turn] == "easy")
+                            {
+                                easyBotWillPlaceTracks();
+                            } else {
+                                mediumBotWillPlaceTracks();
+                            }
                         }
-                        catch
+                        else
                         {
-                            return;
+                            humanPlaysTracks(turn);
                         }
-                        //				for (int i = 0; i < maxHubs && i != 0; i++) {
-                        //					foreach (Vector3 x in playersCollections[0]) {
-                        //						if (playersCollections [i].Contains (x)) {
-                        //							foreach (Vector3 point in playersCollections[0]) {
-                        //								if (playersCollections [i].Contains (point) == false) {
-                        //									playersCollections [i].Add (point);
-                        //								}
-                        //							}
-                        //							foreach (Vector3 point in playersCollections[i]) {
-                        //								if (playersCollections [0].Contains (point) == false) {
-                        //									playersCollections [0].Add (point);
-                        //								}
-                        //							}
-                        //						}
-                        //					}
-                        //				}
-                        if (layedTracks == 2)
+                    }
+                }
+
+                break;
+
+            case 1:
+                if (placingHubs == true)
+                {
+                    disableTrackInstantiation();
+
+                    if (isPlayerBot(turn))
+                    {
+                        botwillplaceahub();
+                    }
+                    else
+                    {
+                        if (placeHub(turn))
                         {
                             changeTurn();
                         }
                     }
                 }
-
-
-                break;
-
-            //		case 1:
-            //			if (checkAllPlayersHaveHub () == false) {
-            //				disableTrackInstantiation ();
-            //
-            ////				Dictionary<Vector3, int> distances_to_victory_points = new Dictionary<Vector3, int> ();
-            ////				foreach (Vector3 x in definedPoints) {
-            ////					Dictionary<Vector3, int> d_to_vps = shortest_distances (graph, x);
-            ////					int total_distance = new int ();
-            ////					foreach (Vector3 y in players[2]) {
-            ////						total_distance += d_to_vps [y];
-            ////					}
-            ////					distances_to_victory_points [x] = total_distance;
-            ////				}
-            ////
-            ////				Vector3 hub_point = shortest_distance_node (distances_to_victory_points);
-            ////
-            ////				foreach (Vector3 x in playersHubCollections) {
-            ////					if (x == hub_point) {
-            ////						distances_to_victory_points.Remove (hub_point);
-            ////						hub_point = shortest_distance_node (distances_to_victory_points);
-            ////					}
-            ////				}
-            ////
-            ////				Debug.Log ("The best point for bot to place the hub is: " + hub_point);
-            ////
-            ////				foreach (Vector3 x in distances_to_victory_points.Keys) {
-            ////					Debug.Log ("Total distance to all victory points from " + x + " is " + distances_to_victory_points [x]);
-            ////				}
-            //
-            //				if (placeHub (turn)) {
-            //					changeTurn ();
-            //				}
-            //			} else {
-            //
-            //				try {
-            //					addPlayersCollectionsIfConnected (1);
-            //				}
-            //				catch {
-            //					return;
-            //				}
-            //
-            //
-            //				if (checkIfAnyWinner ()) {
-            //					disableTrackInstantiation ();
-            //					gameOverText.text = "Player " + winner () + " wins!";
-            //				} else {
-            //					
-            //					if (Physics.Raycast (ray, out hit)) {
-            //						if (Input.GetMouseButtonDown (0)) {
-            //							if (hit.collider.gameObject.tag == "dLine") {
-            //								float z = hit.collider.gameObject.transform.position.z;
-            //								float x = hit.collider.gameObject.transform.position.x;
-            //
-            //								Vector3 p1 = new Vector3 (x + 0.25f, 1f, z - 0.5f);
-            //								Vector3 p2 = new Vector3 (x - 0.25f, 1f, z + 0.5f);
-            //
-            //								Debug.Log (p1);
-            //								Debug.Log (p2);
-            //
-            //								if (playersCollections [1].Contains (p1) || playersCollections [1].Contains (p2)) {
-            //									if (playersCollections [1].Contains (p1)) {
-            //										playersCollections [1].Add (p2);
-            //									} else {
-            //										playersCollections [1].Add (p1);
-            //									}
-            //									Debug.Log ("Players checked if connected");
-            //									GameObject block = Instantiate (TrackBlocks, hit.collider.gameObject.transform.position + new Vector3 (0.0f, 0.25f, 0.0f), hit.collider.gameObject.transform.rotation) as GameObject;
-            //									layedTracks += 1;
-            //									UpdateCount ();
-            //									try {
-            //										addPlayersCollectionsIfConnected (1);
-            //									}
-            //									catch {
-            //										return;
-            //									}
-            //								}
-            //								foreach (Vector3 p in playersCollections[1]) {
-            //									Debug.Log ("player2sCollection points: " + p);
-            //								}
-            //							} else if (hit.collider.gameObject.tag == "hLine") {
-            //								float z = hit.collider.gameObject.transform.position.z;
-            //								float x = hit.collider.gameObject.transform.position.x;
-            //
-            //								Vector3 p1 = new Vector3 (x + 0.5f, 1f, z);
-            //								Vector3 p2 = new Vector3 (x - 0.5f, 1f, z);
-            //
-            //								Debug.Log (p1);
-            //								Debug.Log (p2);
-            //
-            //								if (playersCollections [1].Contains (p1) || playersCollections [1].Contains (p2)) {
-            //									if (playersCollections [1].Contains (p1)) {
-            //										playersCollections [1].Add (p2);
-            //									} else {
-            //										playersCollections [1].Add (p1);
-            //									}
-            //									Debug.Log ("Players checked if connected");
-            //									GameObject block = Instantiate (TrackBlocks, hit.collider.gameObject.transform.position + new Vector3 (0.0f, 0.25f, 0.0f), hit.collider.gameObject.transform.rotation) as GameObject;
-            //									layedTracks += 1;
-            //									UpdateCount ();
-            //									try {
-            //										addPlayersCollectionsIfConnected (1);
-            //									}
-            //									catch {
-            //										return;
-            //									}
-            //								}
-            //								foreach (Vector3 p in playersCollections[1]) {
-            //									Debug.Log ("player2sCollection points: " + p);
-            //								}
-            //							} else if (hit.collider.gameObject.tag == "vLine") {
-            //								float z = hit.collider.gameObject.transform.position.z;
-            //								float x = hit.collider.gameObject.transform.position.x;
-            //
-            //								Vector3 p1 = new Vector3 (x - 0.25f, 1f, z - 0.5f);
-            //								Vector3 p2 = new Vector3 (x + 0.25f, 1f, z + 0.5f);
-            //
-            //								Debug.Log (p1);
-            //								Debug.Log (p2);
-            //
-            //								if (playersCollections [1].Contains (p1) || playersCollections [1].Contains (p2)) {
-            //									if (playersCollections [1].Contains (p1)) {
-            //										playersCollections [1].Add (p2);
-            //									} else {
-            //										playersCollections [1].Add (p1);
-            //									}
-            //									Debug.Log ("Players checked if connected");
-            //									GameObject block = Instantiate (TrackBlocks, hit.collider.gameObject.transform.position + new Vector3 (0.0f, 0.25f, 0.0f), hit.collider.gameObject.transform.rotation) as GameObject;
-            //									layedTracks += 1;
-            //									UpdateCount ();
-            //									try {
-            //										addPlayersCollectionsIfConnected (1);
-            //									}
-            //									catch {
-            //										return;
-            //									}
-            //								}
-            //								foreach (Vector3 p in playersCollections[1]) {
-            //									Debug.Log ("player2sCollection points: " + p);
-            //								}
-            //							} else if (hit.collider.gameObject.tag == "dBridge" && layedTracks == 0) {
-            //								float z = hit.collider.gameObject.transform.position.z;
-            //								float x = hit.collider.gameObject.transform.position.x;
-            //
-            //								Vector3 p1 = new Vector3 (x + 0.25f, 1f, z - 0.5f);
-            //								Vector3 p2 = new Vector3 (x - 0.25f, 1f, z + 0.5f);
-            //
-            //								Debug.Log (p1);
-            //								Debug.Log (p2);
-            //
-            //								if (playersCollections [1].Contains (p1) || playersCollections [1].Contains (p2)) {
-            //									if (playersCollections [1].Contains (p1)) {
-            //										playersCollections [1].Add (p2);
-            //									} else {
-            //										playersCollections [1].Add (p1);
-            //									}
-            //									Debug.Log ("Players checked if connected");
-            //									GameObject block = Instantiate (TrackBlocks, hit.collider.gameObject.transform.position + new Vector3 (0.0f, 0.25f, 0.0f), hit.collider.gameObject.transform.rotation) as GameObject;
-            //									layedTracks += 2;
-            //									UpdateCount ();
-            //									try {
-            //										addPlayersCollectionsIfConnected (1);
-            //									}
-            //									catch {
-            //										return;
-            //									}
-            //								}
-            //								foreach (Vector3 p in playersCollections[1]) {
-            //									Debug.Log ("player2sCollection points: " + p);
-            //								}
-            //							} else if (hit.collider.gameObject.tag == "hBridge" && layedTracks == 0) {
-            //								float z = hit.collider.gameObject.transform.position.z;
-            //								float x = hit.collider.gameObject.transform.position.x;
-            //
-            //								Vector3 p1 = new Vector3 (x + 0.5f, 1f, z);
-            //								Vector3 p2 = new Vector3 (x - 0.5f, 1f, z);
-            //
-            //								Debug.Log (p1);
-            //								Debug.Log (p2);
-            //
-            //								if (playersCollections [1].Contains (p1) || playersCollections [1].Contains (p2)) {
-            //									if (playersCollections [1].Contains (p1)) {
-            //										playersCollections [1].Add (p2);
-            //									} else {
-            //										playersCollections [1].Add (p1);
-            //									}
-            //									Debug.Log ("Players checked if connected");
-            //									GameObject block = Instantiate (TrackBlocks, hit.collider.gameObject.transform.position + new Vector3 (0.0f, 0.25f, 0.0f), hit.collider.gameObject.transform.rotation) as GameObject;
-            //									layedTracks += 2;
-            //									UpdateCount ();
-            //									try {
-            //										addPlayersCollectionsIfConnected (1);
-            //									}
-            //									catch {
-            //										return;
-            //									}
-            //								}
-            //								foreach (Vector3 p in playersCollections[1]) {
-            //									Debug.Log ("player2sCollection points: " + p);
-            //								}
-            //							} else if (hit.collider.gameObject.tag == "vBridge" && layedTracks == 0) {
-            //								float z = hit.collider.gameObject.transform.position.z;
-            //								float x = hit.collider.gameObject.transform.position.x;
-            //
-            //								Vector3 p1 = new Vector3 (x - 0.25f, 1f, z - 0.5f);
-            //								Vector3 p2 = new Vector3 (x + 0.25f, 1f, z + 0.5f);
-            //
-            //								Debug.Log (p1);
-            //								Debug.Log (p2);
-            //
-            //								if (playersCollections [1].Contains (p1) || playersCollections [1].Contains (p2)) {
-            //									if (playersCollections [1].Contains (p1)) {
-            //										playersCollections [1].Add (p2);
-            //									} else {
-            //										playersCollections [1].Add (p1);
-            //									}
-            //									Debug.Log ("Players checked if connected");
-            //									GameObject block = Instantiate (TrackBlocks, hit.collider.gameObject.transform.position + new Vector3 (0.0f, 0.25f, 0.0f), hit.collider.gameObject.transform.rotation) as GameObject;
-            //									layedTracks += 2;
-            //									UpdateCount ();
-            //									try {
-            //										addPlayersCollectionsIfConnected (1);
-            //									}
-            //									catch {
-            //										return;
-            //									}
-            //								}
-            //								foreach (Vector3 p in playersCollections[1]) {
-            //									Debug.Log ("player2sCollection points: " + p);
-            //								}
-            //							}
-            //							try {
-            //								addPlayersCollectionsIfConnected (1);
-            //							}
-            //							catch {
-            //								return;
-            //							}
-            //						}
-            //					}
-            //					try {
-            //						addPlayersCollectionsIfConnected (1);
-            //					}
-            //					catch {
-            //						return;
-            //					}
-            ////				for (int i = 0; i < maxHubs && i != 1; i++) {
-            ////					foreach (Vector3 x in playersCollections[1]) {
-            ////						if (playersCollections [i].Contains (x)) {
-            ////							foreach (Vector3 point in playersCollections[1]) {
-            ////								if (playersCollections [i].Contains (point) == false) {
-            ////									playersCollections [i].Add (point);
-            ////								}
-            ////							}
-            ////							foreach (Vector3 point in playersCollections[i]) {
-            ////								if (playersCollections [1].Contains (point) == false) {
-            ////									playersCollections [1].Add (point);
-            ////								}
-            ////							}
-            ////						}
-            ////					}
-            ////				}
-            //					if (layedTracks == 2) {
-            //						//					layedTracks = 0;
-            //						//					UpdateCount ();
-            //						changeTurn ();
-            //						//					if (turn + 1 < maxHubs) {
-            //						//						turn = 2;
-            //						//						UpdateTurn ();
-            //						//					} else {
-            //						//						turn = 0;
-            //						//						UpdateTurn ();
-            //						//					}
-            //					}
-            //				}
-            //			}
-            //			break;
-
-            case 1:
-                if (checkAllPlayersHaveHub() == false)
-                {
-                    disableTrackInstantiation();
-
-
-                    Dictionary<Vector3, int> distances_to_victory_points = new Dictionary<Vector3, int>();
-                    foreach (Vector3 x in definedPoints)
-                    {
-                        Dictionary<Vector3, int> d_to_vps = shortest_distances(graph, x);
-                        int total_distance = new int();
-                        foreach (Vector3 y in players[1])
-                        {
-                            total_distance += d_to_vps[y];
-                        }
-                        distances_to_victory_points[x] = total_distance;
-                    }
-
-                    Vector3 hub_point = shortest_distance_node(distances_to_victory_points);
-
-                    foreach (Vector3 x in playersHubCollections)
-                    {
-                        if (x == hub_point)
-                        {
-                            distances_to_victory_points.Remove(hub_point);
-                            hub_point = shortest_distance_node(distances_to_victory_points);
-                        }
-                    }
-
-                    Debug.Log("The best point for bot to place the hub is: " + hub_point);
-
-                    foreach (Vector3 x in distances_to_victory_points.Keys)
-                    {
-                        Debug.Log("Total distance to all victory points from " + x + " is " + distances_to_victory_points[x]);
-                    }
-
-                    GameObject bots_hub = Instantiate(userHubs3, hub_point + new Vector3(0f, 0.25f, 0f), Quaternion.identity) as GameObject;
-                    playersCollections[1].Add(hub_point);
-                    playersHubCollections.Add(hub_point);
-                    hubCount++;
-                    changeTurn();
-
-                }
                 else
                 {
+                    try
+                    {
+                        addPlayersCollectionsIfConnected(turn);
+                    }
+                    catch
+                    {
+                        return;
+                    }
+
                     if (checkIfAnyWinner())
                     {
                         disableTrackInstantiation();
                         gameOverText.text = "Player " + winner() + " wins!";
-                        foreach (Vector3 y in players[1])
-                        {
-                            GameObject p2 = Instantiate(p2vp, y + new Vector3(0f, -0.3f, 0.3f), Quaternion.identity) as GameObject;
-                        }
+                        highlightAllPlayersCities();
                     }
                     else
                     {
-
-                        //				addPlayersCollectionsIfConnected (2);
-
-                        Vector3 current_point = new Vector3();
-                        Vector3 hub_point = (Vector3)playersCollections[1][0];
-                        Debug.Log("hub_points is: " + hub_point);
-
-                        Dictionary<Vector3, int> distance_to_vpoints = new Dictionary<Vector3, int>();
-
-
-                        if (playersCollections[1].Count == 1)
+                        if (isPlayerBot(turn))
                         {
-                            current_point = hub_point;
-                            Debug.Log("current_point for bot " + current_point);
-                        }
-                        else
-                        {
-                            current_point = get_current_point();
-                            Debug.Log("current_point for bot " + current_point);
-                        }
-
-                        Dictionary<Vector3, List<Vector3>> path_to_dest = shortest_path(graph, current_point);
-
-                        foreach (Vector3 x in path_to_dest.Keys)
-                        {
-                            //					Debug.Log ("Keys are " + x);
-                            foreach (Vector3 y in path_to_dest[x])
+                            if (botsDifficultyLevels[turn] == "easy")
                             {
-                                Debug.Log("Route to " + x + " is " + y);
-                            }
-                        }
-
-
-                        Vector3 track_position = new Vector3();
-                        Vector3 pt = new Vector3();
-                        foreach (Vector3 x in path_to_dest.Keys)
-                        {
-                            if (path_to_dest[x].Count == 1)
-                            {
-                                pt = (Vector3)path_to_dest[x][0];
-                                Debug.Log("Point pt is " + pt);
-                                path_to_dest[x].RemoveAt(0);
+                                easyBotWillPlaceTracks();
                             }
                             else
                             {
-                                pt = (Vector3)path_to_dest[x][(path_to_dest[x].Count) - 1];
-                                Debug.Log("Point pt is " + pt);
-                                path_to_dest[x].RemoveAt((path_to_dest[x].Count) - 1);
+                                mediumBotWillPlaceTracks();
                             }
-                        }
-
-                        if (pt.z == current_point.z)
-                        {
-                            track_position = new Vector3((pt.x + current_point.x) / 2f, current_point.y, current_point.z);
                         }
                         else
                         {
-                            if (pt.x < current_point.x)
+                            humanPlaysTracks(turn);
+                        }
+                    }
+                }
+                break;
+
+            case 2:
+                if (placingHubs == true)
+                {
+                    disableTrackInstantiation();
+
+                    if (isPlayerBot(turn))
+                    {
+                        botwillplaceahub();
+                    }
+                    else
+                    {
+                        if (placeHub(turn))
+                        {
+                            changeTurn();
+                        }
+                    }
+                }
+                else
+                {
+                    try
+                    {
+                        addPlayersCollectionsIfConnected(turn);
+                    }
+                    catch
+                    {
+                        return;
+                    }
+
+                    if (checkIfAnyWinner())
+                    {
+                        disableTrackInstantiation();
+                        gameOverText.text = "Player " + winner() + " wins!";
+                        highlightAllPlayersCities();
+                    }
+                    else
+                    {
+                        if (isPlayerBot(turn))
+                        {
+                            if (botsDifficultyLevels[turn] == "easy")
                             {
-                                track_position = new Vector3((pt.x + 0.25f), 1f, (pt.z + current_point.z) / 2f);
+                                easyBotWillPlaceTracks();
                             }
-                            if (pt.x > current_point.x)
+                            else
                             {
-                                track_position = new Vector3((pt.x - 0.25f), 1f, (pt.z + current_point.z) / 2f);
+                                mediumBotWillPlaceTracks();
                             }
                         }
-
-                        track_position.y += 10f;
-                        Debug.Log("Track position would be " + track_position.ToString("F2"));
-                        if (Physics.Raycast(track_position, Vector3.down, out hit, 10))
+                        else
                         {
-                            Debug.Log("------------->");
-                            if (hit.collider.gameObject.tag == "dLine")
-                            {
-                                Debug.Log("Ray hits the line");
-                                float z = hit.collider.gameObject.transform.position.z;
-                                float x = hit.collider.gameObject.transform.position.x;
-
-                                Debug.Log("Made it to through the point calculations");
-
-                                Vector3 p1 = new Vector3(x + 0.25f, 1f, z - 0.5f);
-                                Vector3 p2 = new Vector3(x - 0.25f, 1f, z + 0.5f);
-
-                                Debug.Log(p1.ToString("F2"));
-                                Debug.Log(p2.ToString("F2"));
-                                //adds one point to the collection since the other already exist
-                                //checks what point already exist and adds the other
-                                if (playersCollections[1].Contains(p1) || playersCollections[1].Contains(p2))
-                                {
-                                    if (playersCollections[1].Contains(p1))
-                                    {
-                                        playersCollections[1].Add(p2);
-                                    }
-                                    else
-                                    {
-                                        playersCollections[1].Add(p1);
-                                    }
-                                    Debug.Log("Made it to the diagonal placement");
-                                    //Places Track
-                                    GameObject block = Instantiate(TrackBlocks, hit.collider.gameObject.transform.position + new Vector3(0.0f, 0.25f, 0.0f), hit.collider.gameObject.transform.rotation) as GameObject;
-                                    //Increments the counter
-                                    layedTracks += 1;
-                                    Debug.Log("Tracks layed " + layedTracks);
-                                    UpdateCount();
-                                    //shares players collections if connected
-                                    try
-                                    {
-                                        addPlayersCollectionsIfConnected(1);
-                                    }
-                                    catch
-                                    {
-                                        return;
-                                    }
-                                    finally
-                                    {
-                                        //prints out all the poins in players collections
-                                        foreach (Vector3 p in playersCollections[1])
-                                        {
-                                            Debug.Log("player3sCollection points: " + p);
-                                        }
-                                        if (layedTracks == 2)
-                                        {
-                                            changeTurn();
-                                        }
-                                    }
-                                }
-
-                            }
-                            else if (hit.collider.gameObject.tag == "hLine")
-                            {
-                                Debug.Log("Ray hits the line");
-                                float z = hit.collider.gameObject.transform.position.z;
-                                float x = hit.collider.gameObject.transform.position.x;
-
-                                Vector3 p1 = new Vector3(x + 0.5f, 1f, z);
-                                Vector3 p2 = new Vector3(x - 0.5f, 1f, z);
-
-                                Debug.Log("Made it to through the point calculations");
-
-                                Debug.Log(p1.ToString("F2"));
-                                Debug.Log(p2.ToString("F2"));
-
-                                if (playersCollections[1].Contains(p1) || playersCollections[1].Contains(p2))
-                                {
-                                    if (playersCollections[1].Contains(p1))
-                                    {
-                                        playersCollections[1].Add(p2);
-                                    }
-                                    else
-                                    {
-                                        playersCollections[1].Add(p1);
-                                    }
-                                    Debug.Log("Made it to the horizontal placement");
-                                    GameObject block = Instantiate(TrackBlocks, hit.collider.gameObject.transform.position + new Vector3(0.0f, 0.25f, 0.0f), hit.collider.gameObject.transform.rotation) as GameObject;
-                                    layedTracks += 1;
-                                    Debug.Log("Tracks layed " + layedTracks);
-                                    UpdateCount();
-                                    try
-                                    {
-                                        addPlayersCollectionsIfConnected(1);
-                                    }
-                                    catch
-                                    {
-                                        return;
-                                    }
-                                    finally
-                                    {
-                                        //prints out all the poins in players collections
-                                        foreach (Vector3 p in playersCollections[1])
-                                        {
-                                            Debug.Log("player3sCollection points: " + p);
-                                        }
-                                        if (layedTracks == 2)
-                                        {
-                                            changeTurn();
-                                        }
-                                    }
-                                }
-                                //							foreach (Vector3 p in playersCollections[2]) {
-                                //								Debug.Log ("player3sCollection points: " + p);
-                                //							}
-                                //							if (layedTracks == 2) {
-                                //								changeTurn ();
-                                //							}
-                            }
-                            else if (hit.collider.gameObject.tag == "vLine")
-                            {
-                                Debug.Log("Ray hits the line");
-                                float z = hit.collider.gameObject.transform.position.z;
-                                float x = hit.collider.gameObject.transform.position.x;
-
-                                Debug.Log("Made it to through the point calculations");
-
-                                Vector3 p1 = new Vector3(x - 0.25f, 1f, z - 0.5f);
-                                Vector3 p2 = new Vector3(x + 0.25f, 1f, z + 0.5f);
-
-                                Debug.Log(p1.ToString("F2"));
-                                Debug.Log(p2.ToString("F2"));
-
-                                if (playersCollections[1].Contains(p1) || playersCollections[1].Contains(p2))
-                                {
-                                    if (playersCollections[1].Contains(p1))
-                                    {
-                                        playersCollections[1].Add(p2);
-                                    }
-                                    else
-                                    {
-                                        playersCollections[1].Add(p1);
-                                    }
-                                    Debug.Log("Made it to the vertical placement");
-                                    GameObject block = Instantiate(TrackBlocks, hit.collider.gameObject.transform.position + new Vector3(0.0f, 0.25f, 0.0f), hit.collider.gameObject.transform.rotation) as GameObject;
-                                    layedTracks += 1;
-                                    Debug.Log("Tracks layed " + layedTracks);
-                                    UpdateCount();
-                                    try
-                                    {
-                                        addPlayersCollectionsIfConnected(1);
-                                    }
-                                    catch
-                                    {
-                                        return;
-                                    }
-                                    finally
-                                    {
-                                        //prints out all the poins in players collections
-                                        foreach (Vector3 p in playersCollections[1])
-                                        {
-                                            Debug.Log("player3sCollection points: " + p);
-                                        }
-                                        if (layedTracks == 2)
-                                        {
-                                            changeTurn();
-                                        }
-                                    }
-                                }
-                                //							foreach (Vector3 p in playersCollections[2]) {
-                                //								Debug.Log ("player3sCollection points: " + p);
-                                //							}
-                                //							if (layedTracks == 2) {
-                                //								changeTurn ();
-                                //							}
-                            }
-                            else if (hit.collider.gameObject.tag == "dBridge")
-                            {
-                                if (layedTracks == 1)
-                                {
-                                    changeTurn();
-                                }
-                                else if (layedTracks == 0)
-                                {
-                                    Debug.Log("Ray hits the line");
-                                    float z = hit.collider.gameObject.transform.position.z;
-                                    float x = hit.collider.gameObject.transform.position.x;
-
-                                    Debug.Log("Made it to through the point calculations");
-
-                                    Vector3 p1 = new Vector3(x + 0.25f, 1f, z - 0.5f);
-                                    Vector3 p2 = new Vector3(x - 0.25f, 1f, z + 0.5f);
-
-                                    Debug.Log(p1.ToString("F2"));
-                                    Debug.Log(p2.ToString("F2"));
-
-                                    if (playersCollections[1].Contains(p1) || playersCollections[1].Contains(p2))
-                                    {
-                                        if (playersCollections[1].Contains(p1))
-                                        {
-                                            playersCollections[1].Add(p2);
-                                        }
-                                        else
-                                        {
-                                            playersCollections[1].Add(p1);
-                                        }
-                                        Debug.Log("Made it to the diagonal bridge placement");
-                                        GameObject block = Instantiate(TrackBlocks, hit.collider.gameObject.transform.position + new Vector3(0.0f, 0.25f, 0.0f), hit.collider.gameObject.transform.rotation) as GameObject;
-                                        layedTracks += 2;
-                                        Debug.Log("Tracks layed " + layedTracks);
-                                        UpdateCount();
-                                        try
-                                        {
-                                            addPlayersCollectionsIfConnected(1);
-                                        }
-                                        catch
-                                        {
-                                            return;
-                                        }
-                                        finally
-                                        {
-                                            //prints out all the poins in players collections
-                                            foreach (Vector3 p in playersCollections[1])
-                                            {
-                                                Debug.Log("player3sCollection points: " + p);
-                                            }
-                                            if (layedTracks == 2)
-                                            {
-                                                changeTurn();
-                                            }
-                                        }
-                                    }
-                                }
-                                //							foreach (Vector3 p in playersCollections[2]) {
-                                //								Debug.Log ("player3sCollection points: " + p);
-                                //							}
-                                //							if (layedTracks == 2) {
-                                //								changeTurn ();
-                                //							}
-                            }
-                            else if (hit.collider.gameObject.tag == "hBridge")
-                            {
-                                if (layedTracks == 1)
-                                {
-                                    changeTurn();
-                                }
-                                else if (layedTracks == 0)
-                                {
-                                    Debug.Log("Ray hits the line");
-                                    float z = hit.collider.gameObject.transform.position.z;
-                                    float x = hit.collider.gameObject.transform.position.x;
-
-                                    Debug.Log("Made it to through the point calculations");
-
-                                    Vector3 p1 = new Vector3(x + 0.5f, 1f, z);
-                                    Vector3 p2 = new Vector3(x - 0.5f, 1f, z);
-
-                                    Debug.Log(p1.ToString("F2"));
-                                    Debug.Log(p2.ToString("F2"));
-
-                                    if (playersCollections[1].Contains(p1) || playersCollections[1].Contains(p2))
-                                    {
-                                        if (playersCollections[1].Contains(p1))
-                                        {
-                                            playersCollections[1].Add(p2);
-                                        }
-                                        else
-                                        {
-                                            playersCollections[1].Add(p1);
-                                        }
-                                        Debug.Log("Made it to the horizontal bridge placement");
-                                        GameObject block = Instantiate(TrackBlocks, hit.collider.gameObject.transform.position + new Vector3(0.0f, 0.25f, 0.0f), hit.collider.gameObject.transform.rotation) as GameObject;
-                                        layedTracks += 2;
-                                        Debug.Log("Tracks layed " + layedTracks);
-                                        UpdateCount();
-                                        try
-                                        {
-                                            addPlayersCollectionsIfConnected(1);
-                                        }
-                                        catch
-                                        {
-                                            return;
-                                        }
-                                        finally
-                                        {
-                                            //prints out all the poins in players collections
-                                            foreach (Vector3 p in playersCollections[1])
-                                            {
-                                                Debug.Log("player3sCollection points: " + p);
-                                            }
-                                            if (layedTracks == 2)
-                                            {
-                                                changeTurn();
-                                            }
-                                        }
-                                    }
-                                }
-                                //							foreach (Vector3 p in playersCollections[2]) {
-                                //								Debug.Log ("player3sCollection points: " + p);
-                                //							}
-                                //							if (layedTracks == 2) {
-                                //								changeTurn ();
-                                //							}
-                            }
-                            else if (hit.collider.gameObject.tag == "vBridge")
-                            {
-                                if (layedTracks == 1)
-                                {
-                                    changeTurn();
-                                }
-                                else if (layedTracks == 0)
-                                {
-                                    Debug.Log("Ray hits the line");
-                                    float z = hit.collider.gameObject.transform.position.z;
-                                    float x = hit.collider.gameObject.transform.position.x;
-
-                                    Debug.Log("Made it to through the point calculations");
-
-                                    Vector3 p1 = new Vector3(x - 0.25f, 1f, z - 0.5f);
-                                    Vector3 p2 = new Vector3(x + 0.25f, 1f, z + 0.5f);
-
-                                    Debug.Log(p1.ToString("F2"));
-                                    Debug.Log(p2.ToString("F2"));
-
-                                    if (playersCollections[1].Contains(p1) || playersCollections[1].Contains(p2))
-                                    {
-                                        if (playersCollections[1].Contains(p1))
-                                        {
-                                            playersCollections[1].Add(p2);
-                                        }
-                                        else
-                                        {
-                                            playersCollections[1].Add(p1);
-                                        }
-                                        Debug.Log("Made it to the vertical bridge placement");
-                                        GameObject block = Instantiate(TrackBlocks, hit.collider.gameObject.transform.position + new Vector3(0.0f, 0.25f, 0.0f), hit.collider.gameObject.transform.rotation) as GameObject;
-                                        layedTracks += 2;
-                                        Debug.Log("Tracks layed " + layedTracks);
-                                        UpdateCount();
-                                        try
-                                        {
-                                            addPlayersCollectionsIfConnected(1);
-                                        }
-                                        catch
-                                        {
-                                            return;
-                                        }
-                                        finally
-                                        {
-                                            //prints out all the poins in players collections
-                                            foreach (Vector3 p in playersCollections[1])
-                                            {
-                                                Debug.Log("player3sCollection points: " + p);
-                                            }
-                                            if (layedTracks == 2)
-                                            {
-                                                changeTurn();
-                                            }
-                                        }
-                                    }
-                                }
-                                //							foreach (Vector3 p in playersCollections[2]) {
-                                //								Debug.Log ("player3sCollection points: " + p);
-                                //							}
-                                //							if (layedTracks == 2) {
-                                //								changeTurn ();
-                                //							}
-                            }
-
-                            //					for (int i = 0; i < maxHubs && i != 2; i++) {
-                            //						foreach (Vector3 x in playersCollections[2]) {
-                            //							if (playersCollections [i].Contains (x)) {
-                            //								foreach (Vector3 point in playersCollections[2]) {
-                            //									if (playersCollections [i].Contains (point) == false) {
-                            //										playersCollections [i].Add (point);
-                            //									}
-                            //								}
-                            //								foreach (Vector3 point in playersCollections[i]) {
-                            //									if (playersCollections [2].Contains (point) == false) {
-                            //										playersCollections [2].Add (point);
-                            //									}
-                            //								}
-                            //							}
-                            //						}
-                            //					}
-                            try
-                            {
-                                foreach (Vector3 vp in botsvp)
-                                {
-                                    if (playersCollections[1].Contains(vp))
-                                    {
-                                        Debug.Log("vp " + vp);
-                                        botsvp.Remove(vp);
-                                    }
-                                }
-                            }
-                            catch
-                            {
-                                return;
-                            }
+                            humanPlaysTracks(turn);
                         }
                     }
                 }
 
                 break;
+
+            case 3:
+                if (placingHubs == true)
+                {
+                    disableTrackInstantiation();
+
+                    if (isPlayerBot(turn))
+                    {
+                        botwillplaceahub();
+                    }
+                    else
+                    {
+                        if (placeHub(turn))
+                        {
+                            changeTurn();
+                        }
+                    }
+                }
+                else
+                {
+                    try
+                    {
+                        addPlayersCollectionsIfConnected(turn);
+                    }
+                    catch
+                    {
+                        return;
+                    }
+
+                    if (checkIfAnyWinner())
+                    {
+                        disableTrackInstantiation();
+                        gameOverText.text = "Player " + winner() + " wins!";
+                        highlightAllPlayersCities();
+                    }
+                    else
+                    {
+                        if (isPlayerBot(turn))
+                        {
+                            if (botsDifficultyLevels[turn] == "easy")
+                            {
+                                easyBotWillPlaceTracks();
+                            }
+                            else
+                            {
+                                mediumBotWillPlaceTracks();
+                            }
+                        }
+                        else
+                        {
+                            humanPlaysTracks(turn);
+                        }
+                    }
+                }
+
+                break;
+
+            case 4:
+                if (placingHubs == true)
+                {
+                    disableTrackInstantiation();
+
+                    if (isPlayerBot(turn))
+                    {
+                        botwillplaceahub();
+                    }
+                    else
+                    {
+                        if (placeHub(turn))
+                        {
+                            changeTurn();
+                        }
+                    }
+                }
+                else
+                {
+                    try
+                    {
+                        addPlayersCollectionsIfConnected(turn);
+                    }
+                    catch
+                    {
+                        return;
+                    }
+
+                    if (checkIfAnyWinner())
+                    {
+                        disableTrackInstantiation();
+                        gameOverText.text = "Player " + winner() + " wins!";
+                        highlightAllPlayersCities();
+                    }
+                    else
+                    {
+                        if (isPlayerBot(turn))
+                        {
+                            if (botsDifficultyLevels[turn] == "easy")
+                            {
+                                easyBotWillPlaceTracks();
+                            }
+                            else
+                            {
+                                mediumBotWillPlaceTracks();
+                            }
+                        }
+                        else
+                        {
+                            humanPlaysTracks(turn);
+                        }
+                    }
+                }
+
+                break;
+
+            case 5:
+                if (placingHubs == true)
+                {
+                    disableTrackInstantiation();
+
+                    if (isPlayerBot(turn))
+                    {
+                        botwillplaceahub();
+                    }
+                    else
+                    {
+                        if (placeHub(turn))
+                        {
+                            changeTurn();
+                        }
+                    }
+                }
+                else
+                {
+                    try
+                    {
+                        addPlayersCollectionsIfConnected(turn);
+                    }
+                    catch
+                    {
+                        return;
+                    }
+
+                    if (checkIfAnyWinner())
+                    {
+                        disableTrackInstantiation();
+                        gameOverText.text = "Player " + winner() + " wins!";
+                        highlightAllPlayersCities();
+                    }
+                    else
+                    {
+                        if (isPlayerBot(turn))
+                        {
+                            if (botsDifficultyLevels[turn] == "easy")
+                            {
+                                easyBotWillPlaceTracks();
+                            }
+                            else
+                            {
+                                mediumBotWillPlaceTracks();
+                            }
+                        }
+                        else
+                        {
+                            humanPlaysTracks(turn);
+                        }
+                    }
+                }
+
+                break;
+        }
+    }
+
+    void highlightAllPlayersCities()
+    {
+        for (int i = 0; i < maxHubs; i++)
+        {
+            if (isPlayerBot(i) == false)
+            {
+                continue;
+            }
+            else
+            {
+                GameObject highlightCity = p1vp;
+                if (i == 0)
+                {
+                    highlightCity.GetComponent<Renderer>().sharedMaterial = userHubs1.GetComponent<Renderer>().sharedMaterial;
+                }
+                else if (i == 1)
+                {
+                    highlightCity.GetComponent<Renderer>().sharedMaterial = userHubs2.GetComponent<Renderer>().sharedMaterial;
+                }
+                else if (i == 2)
+                {
+                    highlightCity.GetComponent<Renderer>().sharedMaterial = userHubs3.GetComponent<Renderer>().sharedMaterial;
+                }
+                else if (i == 3)
+                {
+                    highlightCity.GetComponent<Renderer>().sharedMaterial = userHubs4.GetComponent<Renderer>().sharedMaterial;
+                }
+                else if (i == 4)
+                {
+                    highlightCity.GetComponent<Renderer>().sharedMaterial = userHubs5.GetComponent<Renderer>().sharedMaterial;
+                }
+                else
+                {
+                    highlightCity.GetComponent<Renderer>().sharedMaterial = userHubs6.GetComponent<Renderer>().sharedMaterial;
+                }
+
+                foreach (Vector3 cityPoint in players[i])
+                {
+                    GameObject city = Instantiate(p1vp, cityPoint + new Vector3(0f, -0.3f, 0.3f), Quaternion.identity) as GameObject;
+                }
+            }
+        }
+    }
+
+
+    Material getHubColor()
+    {
+        return hub().GetComponent<Renderer>().sharedMaterial;
+    }
+
+    void easyBotWillPlaceTracks()
+    {
+        Vector3 current_point = new Vector3();
+        Vector3 hub_point = (Vector3)playersCollections[turn][0];
+        //Debug.Log("hub_points is: " + hub_point);
+
+        Dictionary<Vector3, int> distance_to_vpoints = new Dictionary<Vector3, int>();
+
+        if (playersCollections[turn].Count == 1)
+        {
+            current_point = hub_point;
+            //Debug.Log("current_point for bot " + current_point);
+        }
+        else
+        {
+            current_point = get_current_point();
+            //Debug.Log("current_point for bot " + current_point);
+        }
+
+        Dictionary<Vector3, List<Vector3>> path_to_dest = shortest_path(graph, current_point);
+
+        //foreach (Vector3 x in path_to_dest.Keys)
+        //{
+        //    //                  Debug.Log ("Keys are " + x);
+        //    foreach (Vector3 y in path_to_dest[x])
+        //    {
+        //        Debug.Log("Route to " + x + " is " + y);
+        //    }
+        //}
+
+
+        Vector3 track_position = new Vector3();
+        Vector3 pt = new Vector3();
+        foreach (Vector3 x in path_to_dest.Keys)
+        {
+            if (path_to_dest[x].Count == 1)
+            {
+                pt = (Vector3)path_to_dest[x][0];
+                //Debug.Log("Point pt is " + pt);
+                path_to_dest[x].RemoveAt(0);
+            }
+            else
+            {
+                pt = (Vector3)path_to_dest[x][(path_to_dest[x].Count) - 1];
+                //Debug.Log("Point pt is " + pt);
+                path_to_dest[x].RemoveAt((path_to_dest[x].Count) - 1);
+            }
+        }
+
+        if (pt.z == current_point.z)
+        {
+            track_position = new Vector3((pt.x + current_point.x) / 2f, current_point.y, current_point.z);
+        }
+        else
+        {
+            if (pt.x < current_point.x)
+            {
+                track_position = new Vector3((pt.x + 0.25f), 1f, (pt.z + current_point.z) / 2f);
+            }
+            if (pt.x > current_point.x)
+            {
+                track_position = new Vector3((pt.x - 0.25f), 1f, (pt.z + current_point.z) / 2f);
+            }
+        }
+
+        track_position.y += 10f;
+
+        botWillPlaceTracks(track_position, turn);
+    }
+
+    void mediumBotWillPlaceTracks()
+    {
+        System.Threading.Thread.Sleep(1000);
+
+        Debug.Log("******************");
+        foreach (Vector3 tracks in tracks_to_place)
+        {
+            Debug.Log(tracks);
+        }
+
+        Vector3 track_position = new Vector3();
+
+        if (tracks_to_place.Count == 0)
+        {
+            tracks_to_place = efficient_shortes_path();
+        }
+        else
+        {
+            track_position = (Vector3)tracks_to_place[0];
+            tracks_to_place.RemoveAt(0);
+        }
+        //ArrayList tracks_to_place = efficient_shortes_path();
+
+        Debug.Log("Track position would be " + track_position.ToString("F2"));
+
+        botWillPlaceTracks(track_position, turn);
+    }
+
+    void humanPlaysTracks(int turn)
+    {
+        if (Physics.Raycast(ray, out hit))
+        {
+            if (Input.GetMouseButtonDown(0))
+            {
+                placetrack(turn);
+            }
+        }
+    }
+
+
+    void botWillPlaceTracks(Vector3 track_position, int turn)
+    {
+        if (Physics.Raycast(track_position, Vector3.down, out hit, 10))
+        {
+            Debug.Log("------------->");
+            botsLogic(turn);
+        }
+    }
+
+    // function for placing tracks
+    void placetrack(int pturn)
+    {
+        float z = new float();
+        float x = new float();
+
+        Vector3 p1 = new Vector3();
+        Vector3 p2 = new Vector3();
+
+        if (hit.collider.gameObject.tag == "dLine")
+        {
+            z = hit.collider.gameObject.transform.position.z;
+            x = hit.collider.gameObject.transform.position.x;
+
+            p1 = new Vector3(x + 0.25f, 1f, z - 0.5f);
+            p2 = new Vector3(x - 0.25f, 1f, z + 0.5f);
+
+        }
+        else if (hit.collider.gameObject.tag == "dBridge" && layedTracks == 0)
+        {
+            z = hit.collider.gameObject.transform.position.z;
+            x = hit.collider.gameObject.transform.position.x;
+
+            p1 = new Vector3(x + 0.25f, 1f, z - 0.5f);
+            p2 = new Vector3(x - 0.25f, 1f, z + 0.5f);
+
+        }
+        else if (hit.collider.gameObject.tag == "hBridge" && layedTracks == 0)
+        {
+            z = hit.collider.gameObject.transform.position.z;
+            x = hit.collider.gameObject.transform.position.x;
+
+            p1 = new Vector3(x + 0.5f, 1f, z);
+            p2 = new Vector3(x - 0.5f, 1f, z);
+
+        }
+        else if (hit.collider.gameObject.tag == "vBridge" && layedTracks == 0)
+        {
+            z = hit.collider.gameObject.transform.position.z;
+            x = hit.collider.gameObject.transform.position.x;
+
+            p1 = new Vector3(x - 0.25f, 1f, z - 0.5f);
+            p2 = new Vector3(x + 0.25f, 1f, z + 0.5f);
+
+        }
+        else if (hit.collider.gameObject.tag == "hLine")
+        {
+            z = hit.collider.gameObject.transform.position.z;
+            x = hit.collider.gameObject.transform.position.x;
+
+            p1 = new Vector3(x + 0.5f, 1f, z);
+            p2 = new Vector3(x - 0.5f, 1f, z);
+
+        }
+        else if (hit.collider.gameObject.tag == "vLine")
+        {
+            z = hit.collider.gameObject.transform.position.z;
+            x = hit.collider.gameObject.transform.position.x;
+
+            p1 = new Vector3(x - 0.25f, 1f, z - 0.5f);
+            p2 = new Vector3(x + 0.25f, 1f, z + 0.5f);
+
+        }
+
+        if (playersCollections[turn].Contains(p1) && playersCollections[turn].Contains(p2))
+        {
+
+        }
+        else
+        {
+            if (playersCollections[pturn].Contains(p1) || playersCollections[pturn].Contains(p2))
+            {
+                if (playersCollections[pturn].Contains(p1))
+                {
+                    playersCollections[pturn].Add(p2);
+                }
+                else
+                {
+                    playersCollections[pturn].Add(p1);
+                }
+                //Debug.Log("Players checked if connected");
+                TrackBlocks.GetComponent<Renderer>().sharedMaterial = originalTrackBlockMaterial;
+
+                GameObject block = Instantiate(TrackBlocks, hit.collider.gameObject.transform.position + new Vector3(0.0f, 0.25f, 0.0f), hit.collider.gameObject.transform.rotation) as GameObject;
+
+                if (hit.collider.gameObject.tag == "dBridge" || hit.collider.gameObject.tag == "hBridge" || hit.collider.gameObject.tag == "vBridge")
+                {
+                    layedTracks += 2;
+                }
+                else
+                {
+                    if (layedTracks == 0)
+                    {
+                        lastTrackPlaced = block;
+                    }
+                    else
+                    {
+                        lastTrackPlaced = null;
+                    }
+
+                    layedTracks += 1;
+                }
+
+                if (botsLastTurnTrackBlocks.Count != 0)
+                {
+                    foreach (GameObject botsTrack in botsLastTurnTrackBlocks)
+                    {
+                        botsTrack.GetComponent<Renderer>().sharedMaterial = originalTrackBlockMaterial;
+                    }
+
+                    botsLastTurnTrackBlocks.Clear();
+                }
+
+                UpdateCount();
+
+                try
+                {
+                    addPlayersCollectionsIfConnected(pturn);
+                }
+                catch
+                {
+                    return;
+                }
+            }
+        }
+
+
+        if (layedTracks == 2)
+        {
+            changeTurn();
+        }
+    }
+
+    void botsLogic(int turn)
+    {
+        float z = new float();
+        float x = new float();
+
+        Vector3 p1 = new Vector3();
+        Vector3 p2 = new Vector3();
+
+        if (hit.collider.gameObject.tag == "dLine")
+        {
+            //Debug.Log("Ray hits the line");
+            z = hit.collider.gameObject.transform.position.z;
+            x = hit.collider.gameObject.transform.position.x;
+
+            //Debug.Log("Made it to through the point calculations");
+
+            p1 = new Vector3(x + 0.25f, 1f, z - 0.5f);
+            p2 = new Vector3(x - 0.25f, 1f, z + 0.5f);
+        }
+        else if (hit.collider.gameObject.tag == "hLine")
+        {
+            //Debug.Log("Ray hits the line");
+            z = hit.collider.gameObject.transform.position.z;
+            x = hit.collider.gameObject.transform.position.x;
+
+            p1 = new Vector3(x + 0.5f, 1f, z);
+            p2 = new Vector3(x - 0.5f, 1f, z);
+
+            //Debug.Log("Made it to through the point calculations");
+        }
+        else if (hit.collider.gameObject.tag == "vLine")
+        {
+            //Debug.Log("Ray hits the line");
+            z = hit.collider.gameObject.transform.position.z;
+            x = hit.collider.gameObject.transform.position.x;
+
+            //Debug.Log("Made it to through the point calculations");
+
+            p1 = new Vector3(x - 0.25f, 1f, z - 0.5f);
+            p2 = new Vector3(x + 0.25f, 1f, z + 0.5f);
+        }
+        else if (hit.collider.gameObject.tag == "dBridge")
+        {
+            if (layedTracks == 1)
+            {
+                changeTurn();
+            }
+            else if (layedTracks == 0)
+            {
+                //Debug.Log("Ray hits the line");
+                z = hit.collider.gameObject.transform.position.z;
+                x = hit.collider.gameObject.transform.position.x;
+
+                //Debug.Log("Made it to through the point calculations");
+
+                p1 = new Vector3(x + 0.25f, 1f, z - 0.5f);
+                p2 = new Vector3(x - 0.25f, 1f, z + 0.5f);
+
+            }
+        }
+        else if (hit.collider.gameObject.tag == "hBridge")
+        {
+            if (layedTracks == 1)
+            {
+                changeTurn();
+            }
+            else if (layedTracks == 0)
+            {
+                //Debug.Log("Ray hits the line");
+                z = hit.collider.gameObject.transform.position.z;
+                x = hit.collider.gameObject.transform.position.x;
+
+                //Debug.Log("Made it to through the point calculations");
+
+                p1 = new Vector3(x + 0.5f, 1f, z);
+                p2 = new Vector3(x - 0.5f, 1f, z);
+            }
+        }
+        else if (hit.collider.gameObject.tag == "vBridge")
+        {
+            if (layedTracks == 1)
+            {
+                changeTurn();
+            }
+            else if (layedTracks == 0)
+            {
+                //Debug.Log("Ray hits the line");
+                z = hit.collider.gameObject.transform.position.z;
+                x = hit.collider.gameObject.transform.position.x;
+
+                //Debug.Log("Made it to through the point calculations");
+
+                p1 = new Vector3(x - 0.25f, 1f, z - 0.5f);
+                p2 = new Vector3(x + 0.25f, 1f, z + 0.5f);
+
+            }
+        }
+
+        if (playersCollections[turn].Contains(p1) && playersCollections[turn].Contains(p2))
+        {
+
+        } else 
+        {
+            if (playersCollections[turn].Contains(p1) || playersCollections[turn].Contains(p2))
+            {
+                if (playersCollections[turn].Contains(p1))
+                {
+                    playersCollections[turn].Add(p2);
+                }
+                else
+                {
+                    playersCollections[turn].Add(p1);
+                }
+                //Debug.Log("Made it to the vertical bridge placement");
+
+                Material trackColor = getHubColor();
+                GameObject botsTrack = TrackBlocks;
+                botsTrack.GetComponent<Renderer>().sharedMaterial = trackColor;
+
+                GameObject block = Instantiate(botsTrack, hit.collider.gameObject.transform.position + new Vector3(0.0f, 0.25f, 0.0f), hit.collider.gameObject.transform.rotation) as GameObject;
+                botsLastTurnTrackBlocks.Add(block);
+
+                if (hit.collider.gameObject.tag == "dBridge" || hit.collider.gameObject.tag == "hBridge" || hit.collider.gameObject.tag == "vBridge")
+                {
+                    layedTracks += 2;
+                }
+                else
+                {
+                    layedTracks += 1;
+                }
+                //Debug.Log("Tracks layed " + layedTracks);
+                UpdateCount();
+                try
+                {
+                    addPlayersCollectionsIfConnected(turn);
+                }
+                catch
+                {
+                    return;
+                }
+                finally
+                {
+                    //prints out all the poins in players collections
+                    //foreach (Vector3 p in playersCollections[turn])
+                    //{
+                    //    Debug.Log("player3sCollection points: " + p);
+                    //}
+                    if (layedTracks == 2)
+                    {
+                        changeTurn();
+                    }
+                }
+            }
+        }
+
+
+        try
+        {
+            foreach (Vector3 vp in botsvps[turn - humanPlayers])
+            {
+                if (playersCollections[turn].Contains(vp))
+                {
+                    botsvps[turn - humanPlayers].Remove(vp);
+                }
+            }
+        }
+        catch
+        {
+            return;
+        }
+    }
+
+
+    void botwillplaceahub()
+    {
+        Dictionary<Vector3, int> distances_to_victory_points = new Dictionary<Vector3, int>();
+        foreach (Vector3 x in definedPoints)
+        {
+            Dictionary<Vector3, int> d_to_vps = shortest_distances(graph, x);
+            int total_distance = new int();
+            foreach (Vector3 y in players[turn])
+            {
+                total_distance += d_to_vps[y];
+            }
+            distances_to_victory_points[x] = total_distance;
+        }
+
+        //Vector3 hub_point = shortest_distance_node(distances_to_victory_points);
+
+        //foreach (Vector3 x in playersHubCollections)
+        //{
+        //    if (x == hub_point)
+        //    {
+        //        distances_to_victory_points.Remove(hub_point);
+        //        hub_point = shortest_distance_node(distances_to_victory_points);
+        //    }
+        //}
+
+        //Debug.Log("The best point for bot to place the hub is: " + hub_point);
+
+        //foreach (Vector3 x in distances_to_victory_points.Keys)
+        //{
+        //    Debug.Log("Total distance to all victory points from " + x + " is " + distances_to_victory_points[x]);
+        //}
+
+        string difficulty = botsDifficultyLevels[turn];
+
+        Vector3 hub_point = getHubLocation(distances_to_victory_points, difficulty);
+
+        GameObject bots_hub = Instantiate(hub(), hub_point + new Vector3(0f, 0.25f, 0f), Quaternion.identity) as GameObject;
+        playersCollections[turn].Add(hub_point);
+        playersHubCollections.Add(hub_point);
+        hubCount++;
+
+        if (botsvps[turn - humanPlayers].Contains(hub_point))
+            botsvps[turn - humanPlayers].Remove(hub_point);
+
+        changeTurn();
+    }
+
+
+    GameObject hub()
+    {
+        switch (turn)
+        {
+            case 0:
+                return userHubs1;
+            case 1:
+                return userHubs2;
+            case 2:
+                return userHubs3;
+            case 3:
+                return userHubs4;
+            case 4:
+                return userHubs5;
+            default:
+                return userHubs6;
         }
     }
 
@@ -1655,49 +1719,13 @@ public class GameController : MonoBehaviour {
             {
                 if (hit.collider.gameObject.tag == "Point")
                 {
-                    if (turn == 0)
-                    {
-                        GameObject startingPoint = Instantiate(userHubs1, hit.collider.gameObject.transform.position + new Vector3(0.0f, 0.25f, 0.0f), Quaternion.identity) as GameObject;
-                        Vector3 hub1 = hit.collider.gameObject.transform.position;
-                        playersCollections[0].Insert(0, hit.collider.gameObject.transform.position);
-                        playersHubCollections.Add(hit.collider.gameObject.transform.position);
-                        hubCount++;
-                        return true;
-                    }
-                    //					if (turn == 1) {
-                    //						GameObject startingPoint = Instantiate (userHubs2, hit.collider.gameObject.transform.position + new Vector3(0.0f, 0.25f, 0.0f) , Quaternion.identity) as GameObject;
-                    //						Vector3 hub2 = hit.collider.gameObject.transform.position;
-                    //						playersCollections[1].Insert (0, hit.collider.gameObject.transform.position);
-                    //						playersHubCollections.Add (hit.collider.gameObject.transform.position);
-                    //						hubCount++;
-                    //						return true;
-                    //					}
-                    //					if (turn == 2) {
-                    //						GameObject startingPoint = Instantiate (userHubs3, hit.collider.gameObject.transform.position + new Vector3(0.0f, 0.25f, 0.0f) , Quaternion.identity) as GameObject;
-                    //						Vector3 hub3 = hit.collider.gameObject.transform.position;
-                    //						playersCollections[2].Insert (0, hit.collider.gameObject.transform.position);						
-                    //						hubCount++;
-                    //						return true;
-                    //					}
-                    if (turn == 3)
-                    {
-                        GameObject startingPoint = Instantiate(userHubs4, hit.collider.gameObject.transform.position + new Vector3(0.0f, 0.25f, 0.0f), Quaternion.identity) as GameObject;
-                        Vector3 hub4 = hit.collider.gameObject.transform.position;
-                        playersCollections[3].Insert(0, hit.collider.gameObject.transform.position);
-                        playersHubCollections.Add(hit.collider.gameObject.transform.position);
-                        hubCount++;
-                        return true;
-                    }
-                    if (turn == 4)
-                    {
-                        GameObject startingPoint = Instantiate(userHubs5, hit.collider.gameObject.transform.position + new Vector3(0.0f, 0.25f, 0.0f), Quaternion.identity) as GameObject;
-                        Vector3 hub5 = hit.collider.gameObject.transform.position;
-                        playersCollections[4].Insert(0, hit.collider.gameObject.transform.position);
-                        playersHubCollections.Add(hit.collider.gameObject.transform.position);
-                        hubCount++;
-                        return true;
-                    }
-                    //					hubCount++;
+
+                    GameObject startingPoint = Instantiate(hub(), hit.collider.gameObject.transform.position + new Vector3(0.0f, 0.25f, 0.0f), Quaternion.identity) as GameObject;
+                    Vector3 hubPosition = hit.collider.gameObject.transform.position;
+                    playersCollections[turn].Insert(0, hubPosition);
+                    playersHubCollections.Add(hubPosition);
+                    hubCount++;
+                    return true;
                 }
             }
         }
@@ -1707,17 +1735,43 @@ public class GameController : MonoBehaviour {
     // changes turns
     void changeTurn()
     {
-        layedTracks = 0;
-        UpdateCount();
-        if (turn + 1 < maxHubs)
+        //System.Threading.Thread.Sleep(5000);
+        if (placingHubs == true)
         {
-            turn += 1;
-            UpdateTurn();
+            if (checkAllPlayersHaveHub() == true)
+            {
+                placingHubs = false;
+                turn = 0;
+                UpdateTurn();
+            }
+            else
+            {
+                if (turn + 1 < maxHubs)
+                {
+                    turn += 1;
+                    UpdateTurn();
+                }
+                else
+                {
+                    turn = 0;
+                    UpdateTurn();
+                }
+            }
         }
         else
         {
-            turn = 0;
-            UpdateTurn();
+            layedTracks = 0;
+            UpdateCount();
+            if (turn + 1 < maxHubs)
+            {
+                turn += 1;
+                UpdateTurn();
+            }
+            else
+            {
+                turn = 0;
+                UpdateTurn();
+            }
         }
     }
 
@@ -1752,11 +1806,17 @@ public class GameController : MonoBehaviour {
             {
                 if (playersCollections[i].Contains(players[i][0]) && playersCollections[i].Contains(players[i][1]) && playersCollections[i].Contains(players[i][2]) && playersCollections[i].Contains(players[i][3]))
                 {
+                    setTracksColorToDefault();
                     return true;
                 }
             }
         }
         return false;
+    }
+
+    void setTracksColorToDefault()
+    {
+        TrackBlocks.GetComponent<Renderer>().sharedMaterial = originalTrackBlockMaterial;
     }
 
     // shows how many moves left for the player
@@ -1779,7 +1839,12 @@ public class GameController : MonoBehaviour {
         switch (turn)
         {
             case 0:
-                player = "Player 1";
+                if (MainMenu.humanPlayersName != "")
+                {
+                    player = MainMenu.humanPlayersName;
+                } else {
+                    player = "You";
+                }
                 break;
             case 1:
                 player = "Player 2";
@@ -1798,60 +1863,6 @@ public class GameController : MonoBehaviour {
                 break;
         }
         playersTurnText.text = "Turn: " + player;
-    }
-
-
-    void getHubs()
-    {
-        disableTrackInstantiation();
-
-        if (hubCount < maxHubs)
-        {
-            if (Physics.Raycast(ray, out hit))
-            {
-                if (Input.GetMouseButtonDown(0))
-                {
-                    if (hit.collider.gameObject.tag == "Point")
-                    {
-
-                        if (hubCount == 0)
-                        {
-                            GameObject startingPoint = Instantiate(userHubs1, hit.collider.gameObject.transform.position + new Vector3(0.0f, 0.25f, 0.0f), Quaternion.identity) as GameObject;
-                            Vector3 hub1 = hit.collider.gameObject.transform.position;
-                            playersCollections[0].Insert(0, hit.collider.gameObject.transform.position);
-                        }
-                        if (hubCount == 1)
-                        {
-                            GameObject startingPoint = Instantiate(userHubs2, hit.collider.gameObject.transform.position + new Vector3(0.0f, 0.25f, 0.0f), Quaternion.identity) as GameObject;
-                            Vector3 hub2 = hit.collider.gameObject.transform.position;
-                            playersCollections[1].Insert(0, hit.collider.gameObject.transform.position);
-                        }
-                        if (hubCount == 2)
-                        {
-                            GameObject startingPoint = Instantiate(userHubs3, hit.collider.gameObject.transform.position + new Vector3(0.0f, 0.25f, 0.0f), Quaternion.identity) as GameObject;
-                            Vector3 hub3 = hit.collider.gameObject.transform.position;
-                            playersCollections[2].Insert(0, hit.collider.gameObject.transform.position);
-                        }
-                        if (hubCount == 3)
-                        {
-                            GameObject startingPoint = Instantiate(userHubs4, hit.collider.gameObject.transform.position + new Vector3(0.0f, 0.25f, 0.0f), Quaternion.identity) as GameObject;
-                            Vector3 hub4 = hit.collider.gameObject.transform.position;
-                            playersCollections[3].Insert(0, hit.collider.gameObject.transform.position);
-                        }
-                        if (hubCount == 4)
-                        {
-                            GameObject startingPoint = Instantiate(userHubs5, hit.collider.gameObject.transform.position + new Vector3(0.0f, 0.25f, 0.0f), Quaternion.identity) as GameObject;
-                            Vector3 hub5 = hit.collider.gameObject.transform.position;
-                            playersCollections[4].Insert(0, hit.collider.gameObject.transform.position);
-                        }
-                        hubCount++;
-                        //						Debug.Log ("hub position: " + startingPoint.transform.position);
-                        Debug.Log("collider position: " + hit.collider.gameObject.transform.position.ToString("F4"));
-                    }
-                }
-            }
-        }
-
     }
 
 
@@ -1892,50 +1903,75 @@ public class GameController : MonoBehaviour {
                         {
                             GameObject green_cities = Instantiate(greenCities, vertices[i] + (z * vertexOffset) + new Vector3(0f, -0.7f, 0f), Quaternion.identity) as GameObject;
                             zone1.Add(vertex.transform.position);
+                            allCities.Add(vertex.transform.position);
                         }
                         if (city_zones[vertices[i]] == "zone1_full")
                         {
-                            GameObject green_cities = Instantiate(greenCities, vertices[i] + (z * vertexOffset) + new Vector3(0f, -0.7f, 0f), Quaternion.identity) as GameObject;
+                            if (maxHubs >= 5) 
+                            {
+                                GameObject green_cities = Instantiate(greenCities, vertices[i] + (z * vertexOffset) + new Vector3(0f, -0.7f, 0f), Quaternion.identity) as GameObject;
+                                allCities.Add(vertex.transform.position);
+                            }
                             zone1_full.Add(vertex.transform.position);
                         }
                         if (city_zones[vertices[i]] == "zone2")
                         {
                             GameObject blue_cities = Instantiate(blueCities, vertices[i] + (z * vertexOffset) + new Vector3(0f, -0.7f, 0f), Quaternion.identity) as GameObject;
                             zone2.Add(vertex.transform.position);
+                            allCities.Add(vertex.transform.position);
                         }
                         if (city_zones[vertices[i]] == "zone2_full")
                         {
-                            GameObject blue_cities = Instantiate(blueCities, vertices[i] + (z * vertexOffset) + new Vector3(0f, -0.7f, 0f), Quaternion.identity) as GameObject;
+                            if (maxHubs >= 5)
+                            {
+                                GameObject blue_cities = Instantiate(blueCities, vertices[i] + (z * vertexOffset) + new Vector3(0f, -0.7f, 0f), Quaternion.identity) as GameObject;
+                                allCities.Add(vertex.transform.position);
+                            }
                             zone2_full.Add(vertex.transform.position);
                         }
                         if (city_zones[vertices[i]] == "zone3")
                         {
                             GameObject red_cities = Instantiate(redCities, vertices[i] + (z * vertexOffset) + new Vector3(0f, -0.7f, 0f), Quaternion.identity) as GameObject;
                             zone3.Add(vertex.transform.position);
+                            allCities.Add(vertex.transform.position);
                         }
                         if (city_zones[vertices[i]] == "zone3_full")
                         {
-                            GameObject red_cities = Instantiate(redCities, vertices[i] + (z * vertexOffset) + new Vector3(0f, -0.7f, 0f), Quaternion.identity) as GameObject;
+                            if (maxHubs >= 5)
+                            {
+                                GameObject red_cities = Instantiate(redCities, vertices[i] + (z * vertexOffset) + new Vector3(0f, -0.7f, 0f), Quaternion.identity) as GameObject;
+                                allCities.Add(vertex.transform.position);
+                            }
                             zone3_full.Add(vertex.transform.position);
                         }
                         if (city_zones[vertices[i]] == "zone4")
                         {
                             GameObject orange_cities = Instantiate(orangeCities, vertices[i] + (z * vertexOffset) + new Vector3(0f, -0.7f, 0f), Quaternion.identity) as GameObject;
                             zone4.Add(vertex.transform.position);
+                            allCities.Add(vertex.transform.position);
                         }
                         if (city_zones[vertices[i]] == "zone4_full")
                         {
-                            GameObject orange_cities = Instantiate(orangeCities, vertices[i] + (z * vertexOffset) + new Vector3(0f, -0.7f, 0f), Quaternion.identity) as GameObject;
+                            if (maxHubs >= 5)
+                            {
+                                GameObject orange_cities = Instantiate(orangeCities, vertices[i] + (z * vertexOffset) + new Vector3(0f, -0.7f, 0f), Quaternion.identity) as GameObject;
+                                allCities.Add(vertex.transform.position);
+                            }
                             zone4_full.Add(vertex.transform.position);
                         }
                         if (city_zones[vertices[i]] == "zone5")
                         {
                             GameObject yellow_cities = Instantiate(yellowCities, vertices[i] + (z * vertexOffset) + new Vector3(0f, -0.7f, 0f), Quaternion.identity) as GameObject;
                             zone5.Add(vertex.transform.position);
+                            allCities.Add(vertex.transform.position);
                         }
                         if (city_zones[vertices[i]] == "zone5_full")
                         {
-                            GameObject yellow_cities = Instantiate(yellowCities, vertices[i] + (z * vertexOffset) + new Vector3(0f, -0.7f, 0f), Quaternion.identity) as GameObject;
+                            if (maxHubs >= 5)
+                            {
+                                GameObject yellow_cities = Instantiate(yellowCities, vertices[i] + (z * vertexOffset) + new Vector3(0f, -0.7f, 0f), Quaternion.identity) as GameObject;
+                                allCities.Add(vertex.transform.position);
+                            }
                             zone5_full.Add(vertex.transform.position);
                         }
                     }
@@ -2064,255 +2100,6 @@ public class GameController : MonoBehaviour {
         }
     }
 
-    // function for placing tracks
-    void placetrack(int pturn)
-    {
-        if (Physics.Raycast(ray, out hit))
-        {
-            if (Input.GetMouseButtonDown(0))
-            {
-                if (hit.collider.gameObject.tag == "dLine")
-                {
-                    float z = hit.collider.gameObject.transform.position.z;
-                    float x = hit.collider.gameObject.transform.position.x;
-
-                    Vector3 p1 = new Vector3(x + 0.25f, 1f, z - 0.5f);
-                    Vector3 p2 = new Vector3(x - 0.25f, 1f, z + 0.5f);
-
-                    Debug.Log(p1);
-                    Debug.Log(p2);
-
-                    if (playersCollections[pturn].Contains(p1) || playersCollections[0].Contains(p2))
-                    {
-                        if (playersCollections[pturn].Contains(p1))
-                        {
-                            playersCollections[pturn].Add(p2);
-                        }
-                        else
-                        {
-                            playersCollections[pturn].Add(p1);
-                        }
-                        Debug.Log("Players checked if connected");
-                        GameObject block = Instantiate(TrackBlocks, hit.collider.gameObject.transform.position + new Vector3(0.0f, 0.25f, 0.0f), hit.collider.gameObject.transform.rotation) as GameObject;
-                        layedTracks += 1;
-                        UpdateCount();
-                        try
-                        {
-                            addPlayersCollectionsIfConnected(0);
-                        }
-                        catch
-                        {
-                            return;
-                        }
-                    }
-                    foreach (Vector3 p in playersCollections[pturn])
-                    {
-                        Debug.Log("player1sCollection points: " + p);
-                    }
-
-                }
-                else if (hit.collider.gameObject.tag == "dBridge" && layedTracks == 0)
-                {
-                    float z = hit.collider.gameObject.transform.position.z;
-                    float x = hit.collider.gameObject.transform.position.x;
-
-                    Vector3 p1 = new Vector3(x + 0.25f, 1f, z - 0.5f);
-                    Vector3 p2 = new Vector3(x - 0.25f, 1f, z + 0.5f);
-
-                    Debug.Log(p1);
-                    Debug.Log(p2);
-
-                    if (playersCollections[pturn].Contains(p1) || playersCollections[0].Contains(p2))
-                    {
-                        if (playersCollections[pturn].Contains(p1))
-                        {
-                            playersCollections[pturn].Add(p2);
-                        }
-                        else
-                        {
-                            playersCollections[pturn].Add(p1);
-                        }
-                        Debug.Log("Players checked if connected");
-                        GameObject block = Instantiate(TrackBlocks, hit.collider.gameObject.transform.position + new Vector3(0.0f, 0.25f, 0.0f), hit.collider.gameObject.transform.rotation) as GameObject;
-                        layedTracks += 2;
-                        UpdateCount();
-                        try
-                        {
-                            addPlayersCollectionsIfConnected(0);
-                        }
-                        catch
-                        {
-                            return;
-                        }
-                    }
-                    foreach (Vector3 p in playersCollections[pturn])
-                    {
-                        Debug.Log("player1sCollection points: " + p);
-                    }
-
-                }
-                else if (hit.collider.gameObject.tag == "hBridge" && layedTracks == 0)
-                {
-                    float z = hit.collider.gameObject.transform.position.z;
-                    float x = hit.collider.gameObject.transform.position.x;
-
-                    Vector3 p1 = new Vector3(x + 0.5f, 1f, z);
-                    Vector3 p2 = new Vector3(x - 0.5f, 1f, z);
-
-                    Debug.Log(p1);
-                    Debug.Log(p2);
-
-                    if (playersCollections[pturn].Contains(p1) || playersCollections[0].Contains(p2))
-                    {
-                        if (playersCollections[pturn].Contains(p1))
-                        {
-                            playersCollections[pturn].Add(p2);
-                        }
-                        else
-                        {
-                            playersCollections[pturn].Add(p1);
-                        }
-                        Debug.Log("Players checked if connected");
-                        GameObject block = Instantiate(TrackBlocks, hit.collider.gameObject.transform.position + new Vector3(0.0f, 0.25f, 0.0f), hit.collider.gameObject.transform.rotation) as GameObject;
-                        layedTracks += 2;
-                        UpdateCount();
-                        try
-                        {
-                            addPlayersCollectionsIfConnected(0);
-                        }
-                        catch
-                        {
-                            return;
-                        }
-                    }
-                    foreach (Vector3 p in playersCollections[pturn])
-                    {
-                        Debug.Log("player1sCollection points: " + p);
-                    }
-                }
-                else if (hit.collider.gameObject.tag == "vBridge" && layedTracks == 0)
-                {
-                    float z = hit.collider.gameObject.transform.position.z;
-                    float x = hit.collider.gameObject.transform.position.x;
-
-                    Vector3 p1 = new Vector3(x - 0.25f, 1f, z - 0.5f);
-                    Vector3 p2 = new Vector3(x + 0.25f, 1f, z + 0.5f);
-
-                    Debug.Log(p1);
-                    Debug.Log(p2);
-
-                    if (playersCollections[pturn].Contains(p1) || playersCollections[0].Contains(p2))
-                    {
-                        if (playersCollections[pturn].Contains(p1))
-                        {
-                            playersCollections[pturn].Add(p2);
-                        }
-                        else
-                        {
-                            playersCollections[pturn].Add(p1);
-                        }
-                        Debug.Log("Players checked if connected");
-                        GameObject block = Instantiate(TrackBlocks, hit.collider.gameObject.transform.position + new Vector3(0.0f, 0.25f, 0.0f), hit.collider.gameObject.transform.rotation) as GameObject;
-                        layedTracks += 2;
-                        UpdateCount();
-                        try
-                        {
-                            addPlayersCollectionsIfConnected(0);
-                        }
-                        catch
-                        {
-                            return;
-                        }
-                    }
-                    foreach (Vector3 p in playersCollections[pturn])
-                    {
-                        Debug.Log("player1sCollection points: " + p);
-                    }
-                }
-                else if (hit.collider.gameObject.tag == "hLine")
-                {
-                    float z = hit.collider.gameObject.transform.position.z;
-                    float x = hit.collider.gameObject.transform.position.x;
-
-                    Vector3 p1 = new Vector3(x + 0.5f, 1f, z);
-                    Vector3 p2 = new Vector3(x - 0.5f, 1f, z);
-
-                    Debug.Log(p1);
-                    Debug.Log(p2);
-
-
-                    if (playersCollections[pturn].Contains(p1) || playersCollections[0].Contains(p2))
-                    {
-                        if (playersCollections[pturn].Contains(p1))
-                        {
-                            playersCollections[pturn].Add(p2);
-                        }
-                        else
-                        {
-                            playersCollections[pturn].Add(p1);
-                        }
-                        Debug.Log("Players checked if connected");
-                        GameObject block = Instantiate(TrackBlocks, hit.collider.gameObject.transform.position + new Vector3(0.0f, 0.25f, 0.0f), hit.collider.gameObject.transform.rotation) as GameObject;
-                        layedTracks += 1;
-                        UpdateCount();
-                        try
-                        {
-                            addPlayersCollectionsIfConnected(0);
-                        }
-                        catch
-                        {
-                            return;
-                        }
-                    }
-                    foreach (Vector3 p in playersCollections[pturn])
-                    {
-                        Debug.Log("player1sCollection points: " + p);
-                    }
-                }
-                else if (hit.collider.gameObject.tag == "vLine")
-                {
-                    float z = hit.collider.gameObject.transform.position.z;
-                    float x = hit.collider.gameObject.transform.position.x;
-
-                    Vector3 p1 = new Vector3(x - 0.25f, 1f, z - 0.5f);
-                    Vector3 p2 = new Vector3(x + 0.25f, 1f, z + 0.5f);
-
-                    Debug.Log(p1);
-                    Debug.Log(p2);
-
-
-                    if (playersCollections[pturn].Contains(p1) || playersCollections[0].Contains(p2))
-                    {
-                        if (playersCollections[pturn].Contains(p1))
-                        {
-                            playersCollections[pturn].Add(p2);
-                        }
-                        else
-                        {
-                            playersCollections[pturn].Add(p1);
-                        }
-                        Debug.Log("Players checked if connected");
-                        GameObject block = Instantiate(TrackBlocks, hit.collider.gameObject.transform.position + new Vector3(0.0f, 0.25f, 0.0f), hit.collider.gameObject.transform.rotation) as GameObject;
-                        layedTracks += 1;
-                        UpdateCount();
-                        try
-                        {
-                            addPlayersCollectionsIfConnected(0);
-                        }
-                        catch
-                        {
-                            return;
-                        }
-                    }
-                    foreach (Vector3 p in playersCollections[pturn])
-                    {
-                        Debug.Log("player1sCollection points: " + p);
-                    }
-                }
-            }
-        }
-    }
-
     //disables clicking on line until all the players have placed their hub
     void disableTrackInstantiation()
     {
@@ -2329,23 +2116,6 @@ public class GameController : MonoBehaviour {
         if (gameObject.tag == "Point")
         {
             gameObject.GetComponent<SphereCollider>().enabled = false;
-        }
-    }
-
-
-    //lays tracks
-    void addTracks()
-    {
-        if (Physics.Raycast(ray, out hit))
-        {
-            if (hit.collider.gameObject.tag == "hLine" || hit.collider.gameObject.tag == "vLine" || hit.collider.gameObject.tag == "dLine")
-            {
-                if (Input.GetMouseButtonDown(0))
-                {
-                    GameObject block = Instantiate(TrackBlocks, hit.collider.gameObject.transform.position + new Vector3(0.0f, 0.25f, 0.0f), hit.collider.gameObject.transform.rotation) as GameObject;
-                    Debug.Log(hit.collider.gameObject.tag);
-                }
-            }
         }
     }
 
@@ -2400,13 +2170,70 @@ public class GameController : MonoBehaviour {
                 }
             }
         }
-        Debug.Log("final_distance.Count: " + final_distance.Count);
-        Debug.Log("G.nodes.Count: " + G.nodes.Count);
+        //Debug.Log("final_distance.Count: " + final_distance.Count);
+        //Debug.Log("G.nodes.Count: " + G.nodes.Count);
 
         //		Debug.Log ("path_to: " + path_to.Count);
 
         return final_distance;
 
+    }
+
+
+    private Vector3 getHubLocation(Dictionary<Vector3, int> d, string botsDifficulty)
+    {
+        ArrayList hubLocationsToChooseFrom = new ArrayList();
+
+        Vector3 best_node = new Vector3();
+        int best_value = 100000;
+
+        foreach (Vector3 x in d.Keys)
+        {
+            if (d[x] < best_value)
+            {
+                best_node = x;
+                best_value = d[x];
+            }
+        }
+
+        foreach (Vector3 x in d.Keys)
+        {
+            if (d[x] == best_value)
+            {
+                if (playersHubCollections.Contains(x) == false)
+                {
+                    if (botsDifficulty == "medium")
+                    {
+                        if (players[turn].Contains(x))
+                        {
+                            hubLocationsToChooseFrom.Add(x);
+                        } else 
+                        {
+                            if (allCities.Contains(x) == false)
+                            {
+                                hubLocationsToChooseFrom.Add(x);
+                            }
+                        }
+                    } else
+                    {
+                        hubLocationsToChooseFrom.Add(x);
+                    }
+                }
+            }
+        }
+
+        best_node = (Vector3)hubLocationsToChooseFrom[Random.Range(0, hubLocationsToChooseFrom.Count - 1)];
+
+        return best_node;
+
+        //foreach (Vector3 x in playersHubCollections)
+        //{
+        //    if (x == hub_point)
+        //    {
+        //        distances_to_victory_points.Remove(hub_point);
+        //        hub_point = shortest_distance_node(distances_to_victory_points);
+        //    }
+        //}
     }
 
     public Vector3 shortest_distance_node(Dictionary<Vector3, int> d)
@@ -2425,16 +2252,494 @@ public class GameController : MonoBehaviour {
     }
 
 
+    bool isTheTrackPlacedByAnotherPlayer(Vector3 point1, Vector3 point2)
+    {
+        for (int i = 0; i < maxHubs; i++)
+        {
+            //if (i == turn) 
+            //{
+            //    continue;
+            //} 
+            //else 
+            //{
+            if (playersCollections[i].Contains(point1) && playersCollections[i].Contains(point2))
+            {
+                return true;
+            }
+            //}
+        }
+
+        return false;
+    }
+
+    int getTotalValueOfThePath(ArrayList path)
+    {
+        int value = 0;
+        for (int i = 0; i < path.Count - 1; i++)
+        {
+            int distanceBetween = 0;
+            if (isTheTrackPlacedByAnotherPlayer((Vector3)path[i], (Vector3)path[i + 1]) == false)
+            {
+                distanceBetween = graph.get_distance_between_nodes((Vector3)path[i], (Vector3)path[i + 1]);
+            }
+
+            value = value + distanceBetween;
+        }
+
+        return value;
+    }
+
+
+    public ArrayList efficient_shortes_path()
+    {
+        ArrayList tracks_to_place = new ArrayList();
+
+        Dictionary<Vector3, ArrayList> various_paths_to_vps = new Dictionary<Vector3, ArrayList>();
+
+        foreach (Vector3 playersPoint in playersCollections[turn])
+        {
+            //Debug.Log("playersPoint: " + playersPoint.ToString());
+            Dictionary<Vector3, int> distance_so_far = new Dictionary<Vector3, int>();
+            Dictionary<Vector3, int> final_distance = new Dictionary<Vector3, int>();
+            Dictionary<Vector3, Vector3> path_to = new Dictionary<Vector3, Vector3>();
+            distance_so_far[playersPoint] = 0;
+            path_to[playersPoint] = playersPoint;
+            while (final_distance.Count < graph.nodes.Count)
+            {
+                Vector3 w = shortest_distance_node(distance_so_far);
+                final_distance[w] = distance_so_far[w];
+                distance_so_far.Remove(w);
+                foreach (Vector3 x in graph.get_neighbour_nodes(w))
+                {
+                    if (final_distance.ContainsKey(x) == false)
+                    {
+                        int distance_between_the_nodes = new int();
+                        if (isTheTrackPlacedByAnotherPlayer(x, w) == true)
+                            distance_between_the_nodes = 0;
+                        else
+                            distance_between_the_nodes = graph.get_distance_between_nodes(x, w);
+
+                        if (distance_so_far.ContainsKey(x) == false)
+                        {
+                            distance_so_far[x] = final_distance[w] + distance_between_the_nodes;
+                            path_to[x] = w;
+                        }
+                        else if (final_distance[w] + distance_between_the_nodes < distance_so_far[x])
+                        {
+                            distance_so_far[x] = final_distance[w] + distance_between_the_nodes;
+                            path_to[x] = w;
+                        }
+                    }
+                }
+            }
+
+            foreach (Vector3 point in botsvps[turn - humanPlayers])
+            {
+                //Debug.Log("^^^^^^^^^^^^^^^^^");
+                //Debug.Log(point);
+                if (path_to.ContainsKey(point))
+                {
+                    ArrayList path = new ArrayList();
+                    if (path_to[point] != playersPoint)
+                    {
+                        bool source_point_found = false;
+                        Vector3 pointer_point = point;
+                        //various_paths_to_vps[point] = new ArrayList();
+                        //various_paths_to_vps[point].Add(point);
+                        //path.Add(point);
+                        path.Insert(0, point);
+                        while (source_point_found != true)
+                        {
+                            path.Insert(0, path_to[pointer_point]);
+                            //Debug.Log(path_to[pointer_point]);
+                            //path.Add(path_to[pointer_point]);
+                            //various_paths_to_vps[point].Add(path_to[pointer_point]);
+                            pointer_point = path_to[pointer_point];
+                            if (pointer_point == playersPoint)
+                            {
+                                source_point_found = true;
+                                //path.Add(pointer_point);
+                                //path.Insert(0, pointer_point);
+                                //various_paths_to_vps[point].Remove(playersPoint);
+                            }
+                        }
+                    }
+                    else
+                    {
+                        if (point != (Vector3)playersCollections[turn][0])
+                        {
+                            //Debug.Log("Entered else loop");
+                            //path.Add(point);
+                            path.Insert(0, path_to[point]);
+                            //Debug.Log(point);
+                            //various_paths_to_vps[point] = new ArrayList();
+                            //various_paths_to_vps[point].Add(point);
+                        }
+                    }
+
+                    if (various_paths_to_vps.ContainsKey(point))
+                    {
+                        int newPathValue = getTotalValueOfThePath(path);
+                        int oldPathValue = getTotalValueOfThePath(various_paths_to_vps[point]);
+
+                        //Debug.Log("newpathValue: " + newPathValue.ToString());
+                        //Debug.Log("oldPathValue: " + oldPathValue.ToString());
+
+                        if (newPathValue <= oldPathValue)
+                        {
+                            various_paths_to_vps[point].Clear();
+                            various_paths_to_vps[point] = path;
+                        }
+                    }
+                    else
+                    {
+                        various_paths_to_vps[point] = new ArrayList();
+                        various_paths_to_vps[point] = path;
+                    }
+                }
+            }
+        }
+
+
+        //Vector3 victoryPoint = new Vector3();
+        //Vector3 longestVictoryPoint = new Vector3();
+
+        //foreach(Vector3 vp in various_paths_to_vps.Keys)
+        //{
+        //    //Debug.Log("++++++++++++");
+        //    //Debug.Log(getTotalValueOfThePath(various_paths_to_vps[vp]));
+        //    //Debug.Log(vp);
+        //    //foreach (Vector3 point in various_paths_to_vps[vp])
+        //    //{
+        //    //    Debug.Log(point);
+        //    //}
+
+        //    if (victoryPoint == new Vector3())
+        //    {
+        //        victoryPoint = vp;
+        //        longestVictoryPoint = vp;
+        //    }
+        //    else
+        //    {
+        //        if (getTotalValueOfThePath(various_paths_to_vps[vp]) < getTotalValueOfThePath(various_paths_to_vps[victoryPoint]))
+        //        {
+        //            victoryPoint = vp;
+        //        }
+
+        //        if (getTotalValueOfThePath(various_paths_to_vps[vp]) > getTotalValueOfThePath(various_paths_to_vps[victoryPoint]))
+        //        {
+        //            longestVictoryPoint = vp;
+        //        }
+        //    }
+        //}
+
+
+        //Debug.Log("victory point" + victoryPoint.ToString("F2"));
+
+
+        //if (various_paths_to_vps.ContainsKey(victoryPoint))
+        //{
+        //    int totalDistance = 0;
+        //    int loopThrough = various_paths_to_vps[victoryPoint].Count - 1;
+        //    if (various_paths_to_vps[victoryPoint].Count == 1)
+        //        loopThrough = 1;
+
+        //    for (int i = 0; i < loopThrough; i++)
+        //    {
+        //        Debug.Log("----------------");
+
+        //        //if (playersCollections[turn].Contains((Vector3)various_paths_to_vps[victoryPoint][i]))
+        //        //{
+        //        //    Debug.Log(i);
+        //        //    Debug.Log((Vector3)various_paths_to_vps[victoryPoint][i]);
+        //        //}
+
+        //        if (totalDistance < 2) 
+        //        {
+
+        //            Vector3 point1 = (Vector3)various_paths_to_vps[victoryPoint][i];
+        //            Vector3 point2 = new Vector3();
+
+        //            if (loopThrough == 1) {
+        //                point2 = victoryPoint;
+        //            } else {
+        //                point2 = (Vector3)various_paths_to_vps[victoryPoint][i + 1];
+        //            }
+
+        //            int distanceBetween2Points = graph.get_distance_between_nodes(point1, point2);
+
+        //            if (distanceBetween2Points == 2 && totalDistance != 0)
+        //            {
+        //                if (various_paths_to_vps.ContainsKey(longestVictoryPoint))
+        //                {
+        //                    totalDistance = 0;
+        //                    loopThrough = various_paths_to_vps[longestVictoryPoint].Count - 1;
+        //                    if (various_paths_to_vps[victoryPoint].Count == 1)
+        //                        loopThrough = 1;
+
+        //                    for (int j = 0; j < loopThrough; j++)
+        //                    {
+        //                        if (totalDistance < 2)
+        //                        {
+        //                            point1 = (Vector3)various_paths_to_vps[victoryPoint][j];
+        //                            point2 = new Vector3();
+
+        //                            if (loopThrough == 1)
+        //                            {
+        //                                point2 = victoryPoint;
+        //                            }
+        //                            else
+        //                            {
+        //                                point2 = (Vector3)various_paths_to_vps[victoryPoint][j + 1];
+        //                            }
+
+        //                            distanceBetween2Points = graph.get_distance_between_nodes(point1, point2);
+
+        //                            if (distanceBetween2Points < 2)
+        //                            {
+        //                                Vector3 trackPlacement = getTrackPlacingPoints(point1, point2);
+        //                                //Debug.Log("==========");
+        //                                //Debug.Log(point1);
+        //                                //Debug.Log(point2);
+        //                                //Debug.Log(trackPlacement);
+
+        //                                if (isTheTrackPlacedByAnotherPlayer(point1, point2) == false)
+        //                                {
+        //                                    tracks_to_place.Add(trackPlacement);
+        //                                    totalDistance = totalDistance + distanceBetween2Points;
+        //                                }
+        //                            }
+        //                        }
+        //                    }
+        //                }
+
+        //            } else {
+        //                Vector3 trackPlacement = getTrackPlacingPoints(point1, point2);
+        //                //Debug.Log("==========");
+        //                //Debug.Log(point1);
+        //                //Debug.Log(point2);
+        //                //Debug.Log(trackPlacement);
+
+        //                if (isTheTrackPlacedByAnotherPlayer(point1, point2) == false)
+        //                {
+        //                    tracks_to_place.Add(trackPlacement);
+        //                    totalDistance = totalDistance + distanceBetween2Points;
+        //                }
+        //            }
+        //        }
+        //    }
+        //}
+
+        tracks_to_place = getTracksToPlaceByBot(various_paths_to_vps);
+
+        return tracks_to_place;
+    }
+
+    ArrayList getTracksToPlaceByBot(Dictionary<Vector3, ArrayList> various_paths_to_vps)
+    {
+        ArrayList tracks = new ArrayList();
+        int totalDistance = 0;
+
+        Vector3 victoryPoint = getShortestVictoryPoint(various_paths_to_vps);
+
+        //while (tracks.Count < 2)
+        //{
+        int loopThrough = various_paths_to_vps[victoryPoint].Count - 1;
+        if (various_paths_to_vps[victoryPoint].Count == 1)
+        {
+            loopThrough = 1;
+        }
+
+        for (int i = 0; i < loopThrough; i++)
+        {
+            if (totalDistance < 2)
+            {
+                Vector3 point1 = (Vector3)various_paths_to_vps[victoryPoint][i];
+                Vector3 point2 = new Vector3();
+
+                if (loopThrough == 1)
+                {
+                    point2 = victoryPoint;
+                    botsvps[turn - humanPlayers].Remove(victoryPoint);
+                    victoryPoint = getShortestVictoryPoint(various_paths_to_vps);
+                }
+                else
+                {
+                    point2 = (Vector3)various_paths_to_vps[victoryPoint][i + 1];
+                }
+
+                int distanceBetween2Points = graph.get_distance_between_nodes(point1, point2);
+
+                if (distanceBetween2Points == 2 && totalDistance != 0)
+                {
+                    if (botsvps[turn - humanPlayers].Count > 1)
+                    {
+                        victoryPoint = getLongestVictoryPoint(various_paths_to_vps);
+                        loopThrough = various_paths_to_vps[victoryPoint].Count - 1;
+                        if (various_paths_to_vps[victoryPoint].Count == 1)
+                        {
+                            loopThrough = 1;
+                        }
+                        continue;
+                    }
+                    else
+                    {
+                        changeTurn();
+                    }
+                }
+                else
+                {
+                    Vector3 trackPlacement = getTrackPlacingPoints(point1, point2);
+                    //Debug.Log("==========");
+                    //Debug.Log(point1);
+                    //Debug.Log(point2);
+                    //Debug.Log(trackPlacement);
+
+                    if (isTheTrackPlacedByAnotherPlayer(point1, point2) == false)
+                    {
+                        tracks.Add(trackPlacement);
+                        totalDistance++;
+                        //totalDistance = totalDistance + distanceBetween2Points;
+                    }
+                }
+            }
+        }
+        //}
+
+        return tracks;
+    }
+
+
+    Vector3 getShortestVictoryPoint(Dictionary<Vector3, ArrayList> various_paths_to_vps)
+    {
+        Vector3 victoryPoint = new Vector3();
+
+        foreach (Vector3 vp in various_paths_to_vps.Keys)
+        {
+            //Debug.Log("++++++++++++");
+            //Debug.Log(getTotalValueOfThePath(various_paths_to_vps[vp]));
+            //Debug.Log(vp);
+            //foreach (Vector3 point in various_paths_to_vps[vp])
+            //{
+            //    Debug.Log(point);
+            //}
+
+            if (victoryPoint == new Vector3())
+            {
+                victoryPoint = vp;
+            }
+            else
+            {
+                if (getTotalValueOfThePath(various_paths_to_vps[vp]) < getTotalValueOfThePath(various_paths_to_vps[victoryPoint]))
+                {
+                    victoryPoint = vp;
+                }
+            }
+        }
+
+        return victoryPoint;
+    }
+
+
+    Vector3 getLongestVictoryPoint(Dictionary<Vector3, ArrayList> various_paths_to_vps)
+    {
+        Vector3 victoryPoint = new Vector3();
+
+        foreach (Vector3 vp in various_paths_to_vps.Keys)
+        {
+            //Debug.Log("++++++++++++");
+            //Debug.Log(getTotalValueOfThePath(various_paths_to_vps[vp]));
+            //Debug.Log(vp);
+            //foreach (Vector3 point in various_paths_to_vps[vp])
+            //{
+            //    Debug.Log(point);
+            //}
+
+            if (victoryPoint == new Vector3())
+            {
+                victoryPoint = vp;
+            }
+            else
+            {
+                if (getTotalValueOfThePath(various_paths_to_vps[vp]) > getTotalValueOfThePath(various_paths_to_vps[victoryPoint]))
+                {
+                    victoryPoint = vp;
+                }
+            }
+        }
+
+        return victoryPoint;
+    }
+
+    Vector3 getTrackPlacingPoints(Vector3 startingPoint, Vector3 secondPoint)
+    {
+        Vector3 track_position = new Vector3();
+
+        if (secondPoint.z == startingPoint.z)
+        {
+            track_position = new Vector3((secondPoint.x + startingPoint.x) / 2f, startingPoint.y, startingPoint.z);
+        }
+        else
+        {
+            if (secondPoint.x < startingPoint.x)
+            {
+                track_position = new Vector3((secondPoint.x + 0.25f), 1f, (secondPoint.z + startingPoint.z) / 2f);
+            }
+            if (secondPoint.x > startingPoint.x)
+            {
+                track_position = new Vector3((secondPoint.x - 0.25f), 1f, (secondPoint.z + startingPoint.z) / 2f);
+            }
+        }
+
+        track_position.y += 10f;
+
+        return track_position;
+    }
+
+    public ArrayList shortestPathToVP(ArrayList paths)
+    {
+        ArrayList shortest_path = new ArrayList();
+        foreach (ArrayList path in paths)
+        {
+            if (shortest_path.Count == 0)
+            {
+                shortest_path = path;
+            }
+            else
+            {
+                if (path.Count < shortest_path.Count)
+                {
+                    shortest_path = path;
+                }
+            }
+        }
+
+        return shortest_path;
+    }
+
+    //public ArrayList calculate_path_from_vp(Dictionary<Vector3, Vector3> path_to_vp)
+    //{
+    //    ArrayList path = new ArrayList();
+
+    //    foreach (Vector3 point in path_to_vp.Keys)
+    //    {
+    //        path.Insert(0, point);
+    //    }
+
+    //    return path;
+    //}
+
+
     // find the path to the victory points from a node
-    public Dictionary<Vector3, List<Vector3>> shortest_path(Graph G, Vector3 v)
+    public Dictionary<Vector3, List<Vector3>> shortest_path(Graph G, Vector3 current_starting_point)
     {
         Dictionary<Vector3, List<Vector3>> path_to_dest = new Dictionary<Vector3, List<Vector3>>();
         Dictionary<Vector3, int> distance_so_far = new Dictionary<Vector3, int>();
         Dictionary<Vector3, int> final_distance = new Dictionary<Vector3, int>();
         Dictionary<Vector3, Vector3> path_to = new Dictionary<Vector3, Vector3>();
         Dictionary<Vector3, List<Vector3>> paths_to_vps = new Dictionary<Vector3, List<Vector3>>();
-        distance_so_far[v] = 0;
-        path_to[v] = v;
+        distance_so_far[current_starting_point] = 0;
+        path_to[current_starting_point] = current_starting_point;
         while (final_distance.Count < G.nodes.Count)
         {
             Vector3 w = shortest_distance_node(distance_so_far);
@@ -2458,11 +2763,11 @@ public class GameController : MonoBehaviour {
             }
         }
 
-        foreach (Vector3 point in botsvp)
+        foreach (Vector3 point in botsvps[turn - humanPlayers])
         {
             if (path_to.ContainsKey(point))
             {
-                if (path_to[point] != v)
+                if (path_to[point] != current_starting_point)
                 {
                     bool source_point_found = false;
                     Vector3 pointer_point = point;
@@ -2472,16 +2777,16 @@ public class GameController : MonoBehaviour {
                     {
                         paths_to_vps[point].Add(path_to[pointer_point]);
                         pointer_point = path_to[pointer_point];
-                        if (pointer_point == v)
+                        if (pointer_point == current_starting_point)
                         {
                             source_point_found = true;
-                            paths_to_vps[point].Remove(v);
+                            paths_to_vps[point].Remove(current_starting_point);
                         }
                     }
                 }
                 else
                 {
-                    if (point != (Vector3)playersCollections[1][0])
+                    if (point != (Vector3)playersCollections[turn][0])
                     {
                         paths_to_vps[point] = new List<Vector3>();
                         paths_to_vps[point].Add(point);
@@ -2493,7 +2798,7 @@ public class GameController : MonoBehaviour {
         Vector3 shortest_dest = get_shortest_dest(paths_to_vps);
         path_to_dest[shortest_dest] = paths_to_vps[shortest_dest];
 
-        Debug.Log("path_to: " + path_to.Count);
+        //Debug.Log("path_to: " + path_to.Count);
 
         return path_to_dest;
     }
@@ -2547,27 +2852,32 @@ public class GameController : MonoBehaviour {
     //	return path_to_dest;
     //}
 
+    //void setStartingPointForBot(Vector3 startingPoint) 
+    //{
+    //    playingBotsStartingPoint = startingPoint;
+    //}
+
     // gets the point from which the bot has to start laying tracks again
     public Vector3 get_current_point()
     {
         Dictionary<Vector3, Vector3> point_source = new Dictionary<Vector3, Vector3>();
         Dictionary<Vector3, int> shortest_distances_map = new Dictionary<Vector3, int>();
-        foreach (Vector3 point in playersCollections[1])
+        foreach (Vector3 point in playersCollections[turn])
         {
             Dictionary<Vector3, int> d_to_vps = shortest_distances(graph, point);
-            for (int i = 0; i < botsvp.Count; i++)
+            for (int i = 0; i < botsvps[turn - humanPlayers].Count; i++)
             {
-                if (shortest_distances_map.ContainsKey((Vector3)botsvp[i]) == false)
+                if (shortest_distances_map.ContainsKey((Vector3)botsvps[turn - humanPlayers][i]) == false)
                 {
-                    shortest_distances_map[(Vector3)botsvp[i]] = d_to_vps[(Vector3)botsvp[i]];
-                    point_source[(Vector3)botsvp[i]] = point;
+                    shortest_distances_map[(Vector3)botsvps[turn - humanPlayers][i]] = d_to_vps[(Vector3)botsvps[turn - humanPlayers][i]];
+                    point_source[(Vector3)botsvps[turn - humanPlayers][i]] = point;
                 }
                 else
                 {
-                    if (shortest_distances_map[(Vector3)botsvp[i]] > d_to_vps[(Vector3)botsvp[i]])
+                    if (shortest_distances_map[(Vector3)botsvps[turn - humanPlayers][i]] > d_to_vps[(Vector3)botsvps[turn - humanPlayers][i]])
                     {
-                        shortest_distances_map[(Vector3)botsvp[i]] = d_to_vps[(Vector3)botsvp[i]];
-                        point_source[(Vector3)botsvp[i]] = point;
+                        shortest_distances_map[(Vector3)botsvps[turn - humanPlayers][i]] = d_to_vps[(Vector3)botsvps[turn - humanPlayers][i]];
+                        point_source[(Vector3)botsvps[turn - humanPlayers][i]] = point;
                     }
                 }
             }
@@ -2597,7 +2907,7 @@ public class GameController : MonoBehaviour {
         //		Debug.Log ("Player: " + player);
         for (int i = 0; i < maxHubs; i++)
         {
-            Debug.Log("Checking for player inside loop " + i);
+            //Debug.Log("Checking for player inside loop " + i);
             if (i == player)
             {
                 continue;
@@ -2616,6 +2926,13 @@ public class GameController : MonoBehaviour {
                             //							Debug.Log ("Points are added to " + player);
                             if (playersCollections[i].Contains(point) == false)
                             {
+                                if (isPlayerBot(i) == true)
+                                {
+                                    if (botsvps[i - humanPlayers].Contains(point))
+                                    {
+                                        botsvps[i - humanPlayers].Remove(point);
+                                    }
+                                }
                                 playersCollections[i].Add(point);
                             }
                         }
@@ -2625,6 +2942,13 @@ public class GameController : MonoBehaviour {
                             //							Debug.Log ("Points are added to " + i);
                             if (playersCollections[player].Contains(point) == false)
                             {
+                                if (isPlayerBot(player) == true)
+                                {
+                                    if (botsvps[player - humanPlayers].Contains(point))
+                                    {
+                                        botsvps[player - humanPlayers].Remove(point);
+                                    }
+                                }
                                 playersCollections[player].Add(point);
                             }
                         }
@@ -2636,5 +2960,8 @@ public class GameController : MonoBehaviour {
             }
         }
     }
+
+
+
 
 }
