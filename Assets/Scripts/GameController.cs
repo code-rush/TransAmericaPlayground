@@ -640,26 +640,50 @@ public class GameController : MonoBehaviour {
 
         layedTracks = 0;
 
+
         // Assigning victory points to each player randomly (one city from each zone)
         for (int i = 0; i < maxHubs; i++)
         {
-            int one = Random.Range(0, zone1.Count - 1);
-            int two = Random.Range(0, zone2.Count - 1);
-            int three = Random.Range(0, zone3.Count - 1);
-            int four = Random.Range(0, zone4.Count - 1);
-            int five = Random.Range(0, zone5.Count - 1);
+            if (maxHubs >= 5)
+            {
+                int one = Random.Range(0, zone1_full.Count - 1);
+                int two = Random.Range(0, zone2_full.Count - 1);
+                int three = Random.Range(0, zone3_full.Count - 1);
+                int four = Random.Range(0, zone4_full.Count - 1);
+                int five = Random.Range(0, zone5_full.Count - 1);
 
-            players[i].Add(zone1[one]);
-            players[i].Add(zone2[two]);
-            players[i].Add(zone3[three]);
-            players[i].Add(zone4[four]);
-            players[i].Add(zone5[five]);
+                players[i].Add(zone1_full[one]);
+                players[i].Add(zone2_full[two]);
+                players[i].Add(zone3_full[three]);
+                players[i].Add(zone4_full[four]);
+                players[i].Add(zone5_full[five]);
 
-            zone1.RemoveAt(one);
-            zone2.RemoveAt(two);
-            zone3.RemoveAt(three);
-            zone4.RemoveAt(four);
-            zone5.RemoveAt(five);
+                zone1_full.RemoveAt(one);
+                zone2_full.RemoveAt(two);
+                zone3_full.RemoveAt(three);
+                zone4_full.RemoveAt(four);
+                zone5_full.RemoveAt(five);
+            } else 
+            {
+                int one = Random.Range(0, zone1.Count - 1);
+                int two = Random.Range(0, zone2.Count - 1);
+                int three = Random.Range(0, zone3.Count - 1);
+                int four = Random.Range(0, zone4.Count - 1);
+                int five = Random.Range(0, zone5.Count - 1);
+
+                players[i].Add(zone1[one]);
+                players[i].Add(zone2[two]);
+                players[i].Add(zone3[three]);
+                players[i].Add(zone4[four]);
+                players[i].Add(zone5[five]);
+
+                zone1.RemoveAt(one);
+                zone2.RemoveAt(two);
+                zone3.RemoveAt(three);
+                zone4.RemoveAt(four);
+                zone5.RemoveAt(five);
+            }
+
         }
 
         //show cities of the first human player with a square above the city
@@ -1904,6 +1928,7 @@ public class GameController : MonoBehaviour {
                             GameObject green_cities = Instantiate(greenCities, vertices[i] + (z * vertexOffset) + new Vector3(0f, -0.7f, 0f), Quaternion.identity) as GameObject;
                             zone1.Add(vertex.transform.position);
                             allCities.Add(vertex.transform.position);
+                            zone1_full.Add(vertex.transform.position);
                         }
                         if (city_zones[vertices[i]] == "zone1_full")
                         {
@@ -1919,6 +1944,7 @@ public class GameController : MonoBehaviour {
                             GameObject blue_cities = Instantiate(blueCities, vertices[i] + (z * vertexOffset) + new Vector3(0f, -0.7f, 0f), Quaternion.identity) as GameObject;
                             zone2.Add(vertex.transform.position);
                             allCities.Add(vertex.transform.position);
+                            zone2_full.Add(vertex.transform.position);
                         }
                         if (city_zones[vertices[i]] == "zone2_full")
                         {
@@ -1934,6 +1960,7 @@ public class GameController : MonoBehaviour {
                             GameObject red_cities = Instantiate(redCities, vertices[i] + (z * vertexOffset) + new Vector3(0f, -0.7f, 0f), Quaternion.identity) as GameObject;
                             zone3.Add(vertex.transform.position);
                             allCities.Add(vertex.transform.position);
+                            zone3_full.Add(vertex.transform.position);
                         }
                         if (city_zones[vertices[i]] == "zone3_full")
                         {
@@ -1949,6 +1976,7 @@ public class GameController : MonoBehaviour {
                             GameObject orange_cities = Instantiate(orangeCities, vertices[i] + (z * vertexOffset) + new Vector3(0f, -0.7f, 0f), Quaternion.identity) as GameObject;
                             zone4.Add(vertex.transform.position);
                             allCities.Add(vertex.transform.position);
+                            zone4_full.Add(vertex.transform.position);
                         }
                         if (city_zones[vertices[i]] == "zone4_full")
                         {
@@ -1964,6 +1992,7 @@ public class GameController : MonoBehaviour {
                             GameObject yellow_cities = Instantiate(yellowCities, vertices[i] + (z * vertexOffset) + new Vector3(0f, -0.7f, 0f), Quaternion.identity) as GameObject;
                             zone5.Add(vertex.transform.position);
                             allCities.Add(vertex.transform.position);
+                            zone5_full.Add(vertex.transform.position);
                         }
                         if (city_zones[vertices[i]] == "zone5_full")
                         {
